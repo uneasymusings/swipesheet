@@ -1,0 +1,19 @@
+{
+  "images": [
+    {
+      "path": "images/generated-scenic.png",
+      "label": "Portfolio",
+      "note": "AI-generated sample landscape for local review."
+    },
+    {
+      "path": "images/generated-persona.png",
+      "label": "aut0gen",
+      "note": "AI-generated sample persona candidate for identity review."
+    },
+    {
+      "path": "images/generated-still-life.png",
+      "label": "Workflow",
+      "note": "AI-generated sample still life for a curation pass."
+    }
+  ]
+}

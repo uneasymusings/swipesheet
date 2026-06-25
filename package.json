@@ -1,0 +1,41 @@
+{
+  "name": "swipesheet",
+  "version": "0.1.0",
+  "description": "Contact sheets, but swipeable: native macOS image review for AI-assisted projects.",
+  "license": "MIT",
+  "author": "Ricardo Andoni",
+  "homepage": "https://github.com/uneasymusings/swipesheet#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/uneasymusings/swipesheet.git"
+  },
+  "bugs": {
+    "url": "https://github.com/uneasymusings/swipesheet/issues"
+  },
+  "bin": {
+    "swipesheet": "./bin/swipesheet.js",
+    "image-picker": "./bin/swipesheet.js"
+  },
+  "scripts": {
+    "assets:demo": "node ./scripts/render-demo-gif.js",
+    "build:native": "node ./bin/swipesheet.js build-native",
+    "start": "node ./bin/swipesheet.js review examples/sample-manifest.json --title \"Sample review\"",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18.18"
+  },
+  "os": [
+    "darwin"
+  ],
+  "keywords": [
+    "macos",
+    "appkit",
+    "image-review",
+    "photo-culling",
+    "local-first",
+    "ai-workflow",
+    "portfolio",
+    "ai-agents"
+  ]
+}
