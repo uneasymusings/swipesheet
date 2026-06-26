@@ -15,13 +15,16 @@ src/native.js
   On-demand Swift compilation and native app launch
 
 src/lib/images.js
-  Source discovery, recursive scanning, manifest parsing, de-duping
+  Source discovery, recursive scanning, flat and grouped manifest parsing, de-duping
 
 src/lib/session.js
-  Session JSON creation, loading, mutation, progress summaries
+  Session JSON creation, latest pointer, loading, mutation, progress summaries
 
 src/lib/exporter.js
-  Copy-ready agent export and machine-readable JSON export
+  Copy-ready agent export, generic JSON export, and grouped aut0gen JSON export
+
+src/lib/autogen.js
+  Helper manifest generation for aut0gen persona and content-set reviews
 
 native/macos/ImagePickerApp.swift
   Native macOS AppKit review window
@@ -30,11 +33,11 @@ native/macos/ImagePickerApp.swift
 ## Data Flow
 
 1. A project runs `swipesheet review <sources...>`.
-2. The CLI discovers image files or parses a manifest.
-3. A session JSON file is created in `.swipesheet/sessions/`.
+2. The CLI discovers image files or parses a flat/grouped manifest.
+3. A session JSON file is created in `.swipesheet/sessions/` and `latest.json` points at it.
 4. The CLI compiles `native/macos/ImagePickerApp.swift` into `.swipesheet/bin/swipesheet-macos` if needed.
 5. The native macOS window opens with the session file path.
-6. Decisions and notes are saved directly back to the session JSON.
+6. Item decisions, item notes, group decisions, group notes, and storyboard `itemOrder` changes are saved directly back to the session JSON.
 7. The export is generated from the session in the app or with `swipesheet export`.
 
 ## Image Loading
@@ -58,4 +61,3 @@ The first version uses AppKit directly because the user experience should feel l
 - Node is used where it is strong: CLI ergonomics, manifest parsing, project integration.
 - Swift/AppKit is used where it is strong: the native review window.
 - The app can still grow into a packaged `.app` later without changing the session format.
-

@@ -1,0 +1,62 @@
+{
+  "kind": "autogen_review",
+  "reviewType": "storyboard",
+  "actions": ["approve", "request_changes", "reject", "archive"],
+  "itemActions": ["use", "replace", "reject"],
+  "groupActions": ["approve_sequence", "needs_reorder", "request_changes", "reject"],
+  "groups": [
+    {
+      "id": "cs_sample_001",
+      "label": "Sample storyboard review",
+      "metadata": {
+        "contentSetId": "cs_sample_001",
+        "briefId": "brief_sample",
+        "platform": "tiktok",
+        "accountGroup": "demo",
+        "hook": "A quick visual story arc",
+        "caption": "Review this sequence before publishing.",
+        "cta": "Tap through for the full set.",
+        "externalId": "content-set:cs_sample_001:tiktok:primary_story_9x16",
+        "checklist": ["Clear hook", "Consistent visual style", "CTA present"]
+      },
+      "constraints": {
+        "minSelected": 2,
+        "maxSelected": 3,
+        "requiresOrder": true,
+        "requiredAspect": "9:16"
+      },
+      "items": [
+        {
+          "id": "slide_sample_001",
+          "path": "images/generated-scenic.png",
+          "label": "Hook slide",
+          "metadata": {
+            "slideIndex": 1,
+            "role": "hook",
+            "aspectRatio": "9:16"
+          }
+        },
+        {
+          "id": "slide_sample_002",
+          "path": "images/generated-persona.png",
+          "label": "Proof slide",
+          "metadata": {
+            "slideIndex": 2,
+            "role": "proof",
+            "aspectRatio": "9:16"
+          }
+        },
+        {
+          "id": "slide_sample_003",
+          "path": "images/generated-still-life.png",
+          "label": "CTA slide",
+          "metadata": {
+            "slideIndex": 3,
+            "role": "cta",
+            "aspectRatio": "9:16"
+          }
+        }
+      ]
+    }
+  ]
+}

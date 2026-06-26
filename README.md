@@ -52,16 +52,22 @@ npm run build:native
 npm start
 ```
 
+Install the `swipesheet` command for use from any repo:
+
+```bash
+npm link
+```
+
 Review a real folder:
 
 ```bash
-node ./bin/swipesheet.js review ~/Desktop/PHOTO --title "Portfolio scenic selects"
+swipesheet review ~/Desktop/PHOTO --title "Portfolio scenic selects"
 ```
 
 Review a manifest:
 
 ```bash
-node ./bin/swipesheet.js review ./examples/sample-manifest.json \
+swipesheet review ./examples/sample-manifest.json \
   --title "Example review" \
   --prompt "Pick strong images and note any conditions before use."
 ```
@@ -71,7 +77,9 @@ node ./bin/swipesheet.js review ./examples/sample-manifest.json \
 ```bash
 swipesheet review <image-or-folder-or-manifest...> [options]
 swipesheet resume <session-json> [options]
-swipesheet export <session-json> [--format agent|json]
+swipesheet export <session-json> [--format agent|json|autogen]
+swipesheet autogen manifest personas <folder> --out <manifest-json>
+swipesheet autogen manifest content-sets <pipeline-memory-json> --out <manifest-json>
 swipesheet build-native
 ```
 
@@ -85,17 +93,54 @@ Review options:
 --limit <number>        Review only the first N discovered images
 ```
 
-Because this repo is not globally installed, run the local binary directly:
+During local development, run the package command directly:
 
 ```bash
-node ./bin/swipesheet.js review <sources...>
+npm start
 ```
 
-From another project:
+After `npm link`, run it from any project directory:
 
 ```bash
-node /Users/you/path/to/swipesheet/bin/swipesheet.js review ./out/images \
+swipesheet review ./out/images \
   --title "Approval pass"
+```
+
+## Using From Other AI CLI Sessions
+
+In the project where another AI CLI is generating or editing images, tell that agent to run SwipeSheet from that project's directory:
+
+```text
+Run: swipesheet review <image-folder-or-manifest> \
+  --title "<short review name>" \
+  --prompt "<what I should decide while reviewing>"
+
+After I finish the native review window, use the exported selected paths and notes to continue the task.
+```
+
+The review session is saved in that project's `.swipesheet/sessions/` directory. The agent can export it later with:
+
+```bash
+swipesheet export .swipesheet/sessions/<session>.json
+```
+
+If the agent needs a machine-readable result:
+
+```bash
+swipesheet export .swipesheet/sessions/<session>.json --format json
+```
+
+For aut0gen review state, export the stable grouped contract:
+
+```bash
+swipesheet export .swipesheet/sessions/latest.json --format autogen
+```
+
+Aut0gen-oriented helper commands can create grouped manifests:
+
+```bash
+swipesheet autogen manifest personas ./references/personas --out .autogen/reviews/personas.json
+swipesheet autogen manifest content-sets .autogen/pipeline-memory.json --out .autogen/reviews/content-sets.json
 ```
 
 ## Inputs
@@ -143,6 +188,49 @@ For richer workflows:
 
 Relative paths resolve from the manifest file's directory. Extra fields are preserved in `metadata` and included in JSON exports.
 
+Grouped review manifests let another system keep IDs, constraints, and ordered content-set state intact:
+
+```json
+{
+  "kind": "autogen_review",
+  "reviewType": "storyboard",
+  "itemActions": ["use", "replace", "reject"],
+  "groupActions": ["approve_sequence", "needs_reorder", "request_changes"],
+  "groups": [
+    {
+      "id": "cs_123",
+      "label": "EDC verdict slideshow",
+      "metadata": {
+        "contentSetId": "cs_123",
+        "briefId": "brief_abc",
+        "platform": "tiktok",
+        "caption": "...",
+        "cta": "..."
+      },
+      "constraints": {
+        "minSelected": 3,
+        "maxSelected": 10,
+        "requiresOrder": true,
+        "requiredAspect": "9:16"
+      },
+      "items": [
+        {
+          "id": "slide_1",
+          "path": "out/slides/slide-01.png",
+          "label": "Hook slide",
+          "metadata": {
+            "slideIndex": 1,
+            "role": "hook"
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+The native UI shows group metadata, constraints, checklist fields, warning lines, item metadata, group notes, group actions, and any extra item actions defined by the manifest. Grouped reviews also get a storyboard strip where the visual order is saved as `groupDecisions[groupId].itemOrder` and included in JSON/aut0gen exports.
+
 ## Sessions
 
 Sessions are saved under the project where you run the command:
@@ -150,6 +238,7 @@ Sessions are saved under the project where you run the command:
 ```text
 .swipesheet/
   sessions/
+    latest.json
     20260625T190000Z-review.json
   bin/
     swipesheet-macos
@@ -178,8 +267,8 @@ Selected images:
 Export later from the terminal:
 
 ```bash
-node ./bin/swipesheet.js export .swipesheet/sessions/<session>.json
-node ./bin/swipesheet.js export .swipesheet/sessions/<session>.json --format json
+swipesheet export .swipesheet/sessions/<session>.json
+swipesheet export .swipesheet/sessions/<session>.json --format json
 ```
 
 ## Development

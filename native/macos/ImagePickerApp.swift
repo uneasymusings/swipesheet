@@ -45,6 +45,27 @@ enum JSONValue: Codable {
     }
 }
 
+func jsonDisplay(_ value: JSONValue) -> String {
+    switch value {
+    case .string(let string):
+        return string
+    case .number(let number):
+        if number.rounded() == number {
+            return String(Int(number))
+        }
+        return String(number)
+    case .bool(let bool):
+        return bool ? "true" : "false"
+    case .object(let object):
+        let parts = object.keys.sorted().prefix(6).map { key in "\(key): \(jsonDisplay(object[key]!))" }
+        return "{\(parts.joined(separator: ", "))}"
+    case .array(let array):
+        return array.prefix(6).map(jsonDisplay).joined(separator: ", ")
+    case .null:
+        return ""
+    }
+}
+
 struct ImageItem: Codable {
     var id: String
     var index: Int
@@ -55,6 +76,9 @@ struct ImageItem: Codable {
     var label: String
     var relativePath: String
     var note: String?
+    var groupId: String?
+    var groupLabel: String?
+    var order: Int?
     var metadata: [String: JSONValue]?
 }
 
@@ -64,9 +88,32 @@ struct Decision: Codable {
     var reviewedAt: String?
 }
 
+struct ReviewGroup: Codable {
+    var id: String
+    var index: Int
+    var label: String
+    var reviewType: String?
+    var metadata: [String: JSONValue]?
+    var constraints: [String: JSONValue]?
+    var itemIds: [String]
+}
+
+struct GroupDecision: Codable {
+    var status: String
+    var note: String
+    var reviewedAt: String?
+    var itemOrder: [String]?
+}
+
 struct ReviewSession: Codable {
     var version: Int
     var id: String
+    var kind: String?
+    var reviewType: String?
+    var actions: [String]?
+    var itemActions: [String]?
+    var groupActions: [String]?
+    var metadata: [String: JSONValue]?
     var title: String
     var prompt: String
     var rootDir: String
@@ -76,7 +123,9 @@ struct ReviewSession: Codable {
     var currentIndex: Int
     var batchSize: Int
     var items: [ImageItem]
+    var groups: [ReviewGroup]?
     var decisions: [String: Decision]
+    var groupDecisions: [String: GroupDecision]?
 }
 
 struct ProgressCounts {
@@ -107,7 +156,13 @@ func statusLabel(_ status: String) -> String {
     case "maybe":
         return "Maybe"
     default:
-        return "Unreviewed"
+        if status == "unreviewed" {
+            return "Unreviewed"
+        }
+        return status
+            .split(separator: "_")
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")
     }
 }
 
@@ -140,8 +195,10 @@ func progress(for session: ReviewSession) -> ProgressCounts {
         case "maybe":
             counts.reviewed += 1
             counts.maybe += 1
-        default:
+        case "unreviewed":
             counts.unreviewed += 1
+        default:
+            counts.reviewed += 1
         }
     }
     return counts
@@ -238,6 +295,26 @@ func buildExport(session: ReviewSession) -> String {
         lines.append(reject.map { String(format: "#%04d", $0.0.index) }.joined(separator: ", "))
     }
 
+    if let reviewGroups = session.groups, !reviewGroups.isEmpty {
+        let itemsById = Dictionary(uniqueKeysWithValues: session.items.map { ($0.id, $0) })
+        lines.append("")
+        lines.append("Groups:")
+        for group in reviewGroups {
+            let decision = session.groupDecisions?[group.id] ?? GroupDecision(status: "unreviewed", note: "", reviewedAt: nil, itemOrder: group.itemIds)
+            let order = decision.itemOrder ?? group.itemIds
+            let itemNumbers = order.compactMap { itemsById[$0] }.map { String(format: "#%04d", $0.index) }
+            lines.append("- \(group.id) | \(group.label) | status: \(decision.status)")
+            if let reviewType = group.reviewType ?? session.reviewType {
+                lines.append("   reviewType: \(reviewType)")
+            }
+            let trimmedNote = decision.note.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedNote.isEmpty {
+                lines.append("   note: \(trimmedNote)")
+            }
+            lines.append("   ordered items: \(itemNumbers.joined(separator: ", "))")
+        }
+    }
+
     return lines.joined(separator: "\n") + "\n"
 }
 
@@ -252,6 +329,89 @@ final class ReviewWindow: NSWindow {
     }
 }
 
+let storyboardPasteboardType = NSPasteboard.PasteboardType("com.swipesheet.storyboard-item-id")
+
+enum StoryboardInsertionPosition {
+    case before
+    case after
+}
+
+final class StoryboardItemButton: NSButton, NSDraggingSource {
+    var itemId = ""
+
+    override func mouseDragged(with event: NSEvent) {
+        guard !itemId.isEmpty else { return }
+        let pasteboardItem = NSPasteboardItem()
+        pasteboardItem.setString(itemId, forType: storyboardPasteboardType)
+
+        let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
+        let dragImage = image ?? placeholderImage(text: title)
+        draggingItem.setDraggingFrame(bounds, contents: dragImage)
+        beginDraggingSession(with: [draggingItem], event: event, source: self)
+    }
+
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        .move
+    }
+}
+
+final class StoryboardDropSlotView: NSView {
+    weak var controller: ReviewViewController?
+    var targetItemId: String?
+    var insertion: StoryboardInsertionPosition = .before
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configure()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configure()
+    }
+
+    private func configure() {
+        wantsLayer = true
+        layer?.cornerRadius = 5
+        layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.22).cgColor
+        registerForDraggedTypes([storyboardPasteboardType])
+    }
+
+    private func sourceId(from sender: NSDraggingInfo) -> String? {
+        sender.draggingPasteboard.string(forType: storyboardPasteboardType)
+    }
+
+    private func setActive(_ active: Bool) {
+        layer?.backgroundColor = active
+            ? NSColor.controlAccentColor.withAlphaComponent(0.45).cgColor
+            : NSColor.separatorColor.withAlphaComponent(0.22).cgColor
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard let sourceId = sourceId(from: sender), controller?.canMoveStoryboardItem(sourceId, relativeTo: targetItemId) == true else {
+            return []
+        }
+        setActive(true)
+        return .move
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        setActive(false)
+    }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let sourceId = sourceId(from: sender) else { return false }
+        return controller?.canMoveStoryboardItem(sourceId, relativeTo: targetItemId) == true
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        setActive(false)
+        guard let sourceId = sourceId(from: sender) else { return false }
+        controller?.moveStoryboardItem(sourceId, relativeTo: targetItemId, insertion: insertion)
+        return true
+    }
+}
+
 final class ReviewViewController: NSViewController, NSTextViewDelegate {
     private var session: ReviewSession
     private let sessionPath: String
@@ -261,18 +421,31 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
     private let progressLabel = NSTextField(labelWithString: "")
     private let imageView = NSImageView()
     private let imageFrame = NSView()
+    private let storyboardHeader = NSStackView()
+    private let storyboardTitleLabel = NSTextField(labelWithString: "Storyboard sequence")
+    private let storyboardStatusLabel = NSTextField(labelWithString: "")
+    private let storyboardScroll = NSScrollView()
+    private let storyboardStack = NSStackView()
     private let thumbnailStack = NSStackView()
     private let positionLabel = NSTextField(labelWithString: "")
     private let statusLabelView = NSTextField(labelWithString: "")
     private let filenameLabel = NSTextField(labelWithString: "")
     private let pathLabel = NSTextField(labelWithString: "")
+    private let metadataScroll = NSScrollView()
+    private let metadataTextView = NSTextView()
+    private let groupActionStack = NSStackView()
+    private let groupNoteScroll = NSScrollView()
+    private let groupNoteTextView = NSTextView()
+    private let extraItemActionStack = NSStackView()
     private let noteScroll = NSScrollView()
     private let noteTextView = NSTextView()
     private let useCountLabel = NSTextField(labelWithString: "0\nUse")
     private let maybeCountLabel = NSTextField(labelWithString: "0\nMaybe")
     private let rejectCountLabel = NSTextField(labelWithString: "0\nReject")
     private var decisionButtons: [String: NSButton] = [:]
+    private var groupActionButtons: [String: NSButton] = [:]
     private var latestExportText = ""
+    private var isRendering = false
 
     init(session: ReviewSession, sessionPath: String) {
         self.session = session
@@ -294,11 +467,15 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
     override func viewDidLoad() {
         super.viewDidLoad()
         noteTextView.delegate = self
+        groupNoteTextView.delegate = self
         render()
     }
 
     func handleKey(_ event: NSEvent) -> Bool {
-        if noteTextView.window?.firstResponder === noteTextView || noteTextView.window?.firstResponder === noteTextView.textStorage {
+        if noteTextView.window?.firstResponder === noteTextView ||
+            noteTextView.window?.firstResponder === noteTextView.textStorage ||
+            groupNoteTextView.window?.firstResponder === groupNoteTextView ||
+            groupNoteTextView.window?.firstResponder === groupNoteTextView.textStorage {
             return false
         }
 
@@ -335,6 +512,14 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
     }
 
     func textDidChange(_ notification: Notification) {
+        if isRendering {
+            return
+        }
+        if let textView = notification.object as? NSTextView, textView === groupNoteTextView {
+            saveCurrentGroupNote()
+            persist()
+            return
+        }
         guard let item = currentItem() else { return }
         var decision = session.decisions[item.id] ?? Decision(status: "unreviewed", note: "", reviewedAt: nil)
         decision.note = noteTextView.string
@@ -363,15 +548,24 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         sidePane.wantsLayer = true
         sidePane.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
 
+        let sideScroll = NSScrollView()
+        sideScroll.hasVerticalScroller = true
+        sideScroll.hasHorizontalScroller = false
+        sideScroll.borderType = .noBorder
+        sideScroll.drawsBackground = false
+        sideScroll.translatesAutoresizingMaskIntoConstraints = false
+        sideScroll.documentView = sidePane
+
         root.addArrangedSubview(reviewPane)
-        root.addArrangedSubview(sidePane)
+        root.addArrangedSubview(sideScroll)
 
         NSLayoutConstraint.activate([
             root.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             root.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             root.topAnchor.constraint(equalTo: view.topAnchor),
             root.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            sidePane.widthAnchor.constraint(equalToConstant: 360)
+            sideScroll.widthAnchor.constraint(equalToConstant: 380),
+            sidePane.widthAnchor.constraint(equalTo: sideScroll.contentView.widthAnchor)
         ])
 
         let top = NSStackView()
@@ -415,6 +609,29 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
             imageFrame.heightAnchor.constraint(greaterThanOrEqualToConstant: 420)
         ])
 
+        storyboardHeader.orientation = .horizontal
+        storyboardHeader.alignment = .centerY
+        storyboardHeader.distribution = .fill
+        storyboardHeader.spacing = 12
+        storyboardTitleLabel.font = NSFont.boldSystemFont(ofSize: 13)
+        storyboardStatusLabel.font = NSFont.systemFont(ofSize: 12)
+        storyboardStatusLabel.textColor = .secondaryLabelColor
+        storyboardStatusLabel.alignment = .right
+        storyboardHeader.addArrangedSubview(storyboardTitleLabel)
+        storyboardHeader.addArrangedSubview(storyboardStatusLabel)
+        reviewPane.addArrangedSubview(storyboardHeader)
+
+        storyboardScroll.hasHorizontalScroller = true
+        storyboardScroll.hasVerticalScroller = false
+        storyboardScroll.borderType = .bezelBorder
+        storyboardScroll.translatesAutoresizingMaskIntoConstraints = false
+        storyboardStack.orientation = .horizontal
+        storyboardStack.spacing = 8
+        storyboardStack.edgeInsets = NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        storyboardScroll.documentView = storyboardStack
+        reviewPane.addArrangedSubview(storyboardScroll)
+        storyboardScroll.heightAnchor.constraint(equalToConstant: 150).isActive = true
+
         let thumbScroll = NSScrollView()
         thumbScroll.hasHorizontalScroller = true
         thumbScroll.hasVerticalScroller = false
@@ -448,6 +665,20 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         fileBlock.addArrangedSubview(pathLabel)
         sidePane.addArrangedSubview(fileBlock)
 
+        let metadataLabel = NSTextField(labelWithString: "Review metadata")
+        metadataLabel.font = NSFont.boldSystemFont(ofSize: 13)
+        sidePane.addArrangedSubview(metadataLabel)
+
+        metadataTextView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        metadataTextView.isEditable = false
+        metadataTextView.isRichText = false
+        metadataTextView.textColor = .secondaryLabelColor
+        metadataScroll.documentView = metadataTextView
+        metadataScroll.hasVerticalScroller = true
+        metadataScroll.borderType = .bezelBorder
+        sidePane.addArrangedSubview(metadataScroll)
+        metadataScroll.heightAnchor.constraint(equalToConstant: 150).isActive = true
+
         let buttonGrid = NSGridView(views: [
             [makeDecisionButton(title: "X  Disregard", status: "reject"), makeDecisionButton(title: "Y  Use this", status: "use")],
             [makeDecisionButton(title: "M  Maybe", status: "maybe"), makeButton(title: "N  Notes", action: #selector(focusNotes))]
@@ -455,6 +686,29 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         buttonGrid.rowSpacing = 8
         buttonGrid.columnSpacing = 8
         sidePane.addArrangedSubview(buttonGrid)
+
+        extraItemActionStack.orientation = .horizontal
+        extraItemActionStack.spacing = 6
+        extraItemActionStack.distribution = .fillEqually
+        sidePane.addArrangedSubview(extraItemActionStack)
+
+        let groupActionLabel = NSTextField(labelWithString: "Group review")
+        groupActionLabel.font = NSFont.boldSystemFont(ofSize: 13)
+        sidePane.addArrangedSubview(groupActionLabel)
+
+        groupActionStack.orientation = .vertical
+        groupActionStack.spacing = 6
+        sidePane.addArrangedSubview(groupActionStack)
+
+        groupNoteTextView.font = NSFont.systemFont(ofSize: 13)
+        groupNoteTextView.isRichText = false
+        groupNoteTextView.isAutomaticQuoteSubstitutionEnabled = false
+        groupNoteTextView.isAutomaticDashSubstitutionEnabled = false
+        groupNoteScroll.documentView = groupNoteTextView
+        groupNoteScroll.hasVerticalScroller = true
+        groupNoteScroll.borderType = .bezelBorder
+        sidePane.addArrangedSubview(groupNoteScroll)
+        groupNoteScroll.heightAnchor.constraint(equalToConstant: 80).isActive = true
 
         let noteLabel = NSTextField(labelWithString: "Feedback for this image")
         noteLabel.font = NSFont.boldSystemFont(ofSize: 13)
@@ -518,6 +772,16 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         }
     }
 
+    @objc private func groupActionPressed(_ sender: NSButton) {
+        guard let status = sender.identifier?.rawValue else { return }
+        setGroupDecision(status)
+    }
+
+    @objc private func extraItemActionPressed(_ sender: NSButton) {
+        guard let status = sender.identifier?.rawValue else { return }
+        setDecision(status, advance: false)
+    }
+
     @objc private func focusNotes() {
         noteTextView.window?.makeFirstResponder(noteTextView)
     }
@@ -530,6 +794,7 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
 
     @objc private func finishAndExport() {
         saveCurrentNote()
+        saveCurrentGroupNote()
         session.finishedAt = nowISO()
         persist()
         let export = buildExport(session: session)
@@ -544,6 +809,11 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         return session.items[session.currentIndex]
     }
 
+    private func currentGroup() -> ReviewGroup? {
+        guard let item = currentItem(), let groupId = item.groupId, let groups = session.groups else { return nil }
+        return groups.first { $0.id == groupId }
+    }
+
     private func currentDecision() -> Decision {
         guard let item = currentItem() else {
             return Decision(status: "unreviewed", note: "", reviewedAt: nil)
@@ -551,11 +821,108 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         return session.decisions[item.id] ?? Decision(status: "unreviewed", note: item.note ?? "", reviewedAt: nil)
     }
 
+    private func currentGroupDecision() -> GroupDecision? {
+        guard let group = currentGroup() else { return nil }
+        if let decision = session.groupDecisions?[group.id] {
+            return decision
+        }
+        return GroupDecision(status: "unreviewed", note: "", reviewedAt: nil, itemOrder: group.itemIds)
+    }
+
+    private func sessionIndex(for itemId: String) -> Int? {
+        session.items.firstIndex { $0.id == itemId }
+    }
+
+    private func item(for itemId: String) -> ImageItem? {
+        guard let index = sessionIndex(for: itemId) else { return nil }
+        return session.items[index]
+    }
+
+    private func orderedItemIds(for group: ReviewGroup) -> [String] {
+        let groupSet = Set(group.itemIds)
+        let savedOrder = session.groupDecisions?[group.id]?.itemOrder ?? group.itemIds
+        var ordered = savedOrder.filter { groupSet.contains($0) }
+        for itemId in group.itemIds where !ordered.contains(itemId) {
+            ordered.append(itemId)
+        }
+        return ordered
+    }
+
+    private func orderedItems(for group: ReviewGroup) -> [ImageItem] {
+        orderedItemIds(for: group).compactMap { item(for: $0) }
+    }
+
+    private func setGroupItemOrder(_ order: [String], for group: ReviewGroup) {
+        if session.groupDecisions == nil {
+            session.groupDecisions = [:]
+        }
+        var decision = session.groupDecisions?[group.id] ?? GroupDecision(status: "unreviewed", note: groupNoteTextView.string, reviewedAt: nil, itemOrder: group.itemIds)
+        decision.itemOrder = order
+        decision.note = groupNoteTextView.string
+        session.groupDecisions?[group.id] = decision
+    }
+
+    func canMoveStoryboardItem(_ sourceId: String, relativeTo targetId: String?) -> Bool {
+        guard let group = currentGroup(), group.itemIds.contains(sourceId) else { return false }
+        if let targetId = targetId {
+            return group.itemIds.contains(targetId) && sourceId != targetId
+        }
+        return true
+    }
+
+    func moveStoryboardItem(_ sourceId: String, relativeTo targetId: String?, insertion: StoryboardInsertionPosition) {
+        guard let group = currentGroup(), canMoveStoryboardItem(sourceId, relativeTo: targetId) else { return }
+        saveCurrentNote()
+        saveCurrentGroupNote()
+
+        var order = orderedItemIds(for: group).filter { $0 != sourceId }
+        var insertionIndex = order.count
+        if let targetId = targetId, let targetIndex = order.firstIndex(of: targetId) {
+            insertionIndex = insertion == .before ? targetIndex : targetIndex + 1
+        }
+        insertionIndex = max(0, min(insertionIndex, order.count))
+        order.insert(sourceId, at: insertionIndex)
+        setGroupItemOrder(order, for: group)
+
+        if let index = sessionIndex(for: sourceId) {
+            session.currentIndex = index
+        }
+        render()
+        persist()
+    }
+
     private func saveCurrentNote() {
         guard let item = currentItem() else { return }
         var decision = session.decisions[item.id] ?? Decision(status: "unreviewed", note: "", reviewedAt: nil)
         decision.note = noteTextView.string
         session.decisions[item.id] = decision
+    }
+
+    private func saveCurrentGroupNote() {
+        guard let group = currentGroup() else { return }
+        if session.groupDecisions == nil {
+            session.groupDecisions = [:]
+        }
+        var decision = session.groupDecisions?[group.id] ?? GroupDecision(status: "unreviewed", note: "", reviewedAt: nil, itemOrder: group.itemIds)
+        decision.note = groupNoteTextView.string
+        session.groupDecisions?[group.id] = decision
+    }
+
+    private func setGroupDecision(_ status: String) {
+        guard let group = currentGroup() else { return }
+        if session.groupDecisions == nil {
+            session.groupDecisions = [:]
+        }
+        var decision = session.groupDecisions?[group.id] ?? GroupDecision(status: "unreviewed", note: groupNoteTextView.string, reviewedAt: nil, itemOrder: group.itemIds)
+        decision.status = status
+        decision.note = groupNoteTextView.string
+        decision.reviewedAt = status == "unreviewed" ? nil : nowISO()
+        if decision.itemOrder == nil {
+            decision.itemOrder = group.itemIds
+        }
+        session.groupDecisions?[group.id] = decision
+        render()
+        persist()
     }
 
     private func setDecision(_ status: String, advance: Bool) {
@@ -584,12 +951,16 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
 
     private func move(delta: Int) {
         saveCurrentNote()
+        saveCurrentGroupNote()
         session.currentIndex = max(0, min(session.currentIndex + delta, session.items.count - 1))
         render()
         persist()
     }
 
     private func render() {
+        isRendering = true
+        defer { isRendering = false }
+
         guard let item = currentItem() else {
             titleLabel.stringValue = session.title
             metaLabel.stringValue = "No images"
@@ -606,6 +977,8 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         filenameLabel.stringValue = item.filename
         pathLabel.stringValue = item.path
         noteTextView.string = decision.note
+        metadataTextView.string = metadataSummary(item: item, group: currentGroup())
+        groupNoteTextView.string = currentGroupDecision()?.note ?? ""
         useCountLabel.stringValue = "\(counts.use)\nUse"
         maybeCountLabel.stringValue = "\(counts.maybe)\nMaybe"
         rejectCountLabel.stringValue = "\(counts.reject)\nReject"
@@ -619,7 +992,262 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
             button.state = decision.status == status ? .on : .off
         }
 
+        renderStoryboard()
+        renderGroupActions()
+        renderExtraItemActions()
         renderThumbnails()
+    }
+
+    private func titleForAction(_ action: String) -> String {
+        statusLabel(action)
+    }
+
+    private func metadataString(_ metadata: [String: JSONValue]?, keys: [String]) -> String? {
+        guard let metadata = metadata else { return nil }
+        for key in keys {
+            if let value = metadata[key] {
+                let display = jsonDisplay(value).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !display.isEmpty {
+                    return display
+                }
+            }
+        }
+        return nil
+    }
+
+    private func appendMetadata(_ lines: inout [String], title: String, metadata: [String: JSONValue]?, preferredKeys: [String]) {
+        guard let metadata = metadata, !metadata.isEmpty else { return }
+        lines.append(title)
+        var used = Set<String>()
+        for key in preferredKeys {
+            if let value = metadata[key] {
+                let display = jsonDisplay(value).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !display.isEmpty {
+                    lines.append("\(key): \(display)")
+                    used.insert(key)
+                }
+            }
+        }
+        for key in metadata.keys.sorted() where !used.contains(key) {
+            let display = jsonDisplay(metadata[key]!).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !display.isEmpty {
+                lines.append("\(key): \(display)")
+            }
+        }
+    }
+
+    private func reviewWarnings(item: ImageItem, group: ReviewGroup?) -> [String] {
+        guard let group = group else { return [] }
+        let metadata = group.metadata ?? [:]
+        let reviewType = group.reviewType ?? session.reviewType ?? ""
+        let contentLike = reviewType.contains("storyboard") || reviewType.contains("post") || metadata["platform"] != nil
+        var warnings: [String] = []
+
+        if contentLike {
+            let mediaURL = metadataString(metadata, keys: ["publicMediaUrl", "mediaUrl", "mediaURL", "url", "oneLink", "onelink"])
+            if mediaURL == nil {
+                warnings.append("Missing public media URL")
+            } else if mediaURL?.lowercased().hasPrefix("https://") == false {
+                warnings.append("Public media URL is not HTTPS")
+            }
+            if metadataString(metadata, keys: ["cta", "CTA", "callToAction"]) == nil {
+                warnings.append("Missing CTA")
+            }
+        }
+
+        if let constraints = group.constraints {
+            if let maxValue = constraints["maxSelected"] ?? constraints["maxImages"] ?? constraints["accountMaxImages"] {
+                let maxText = jsonDisplay(maxValue)
+                if let maxCount = Int(maxText), group.itemIds.count > maxCount {
+                    warnings.append("Slide count \(group.itemIds.count) exceeds max \(maxCount)")
+                }
+            }
+            if let requiredValue = constraints["requiredAspect"] {
+                let required = jsonDisplay(requiredValue)
+                let actual = metadataString(item.metadata, keys: ["aspectRatio", "aspect", "requiredAspect"])
+                if let actual = actual, !actual.isEmpty, actual != required {
+                    warnings.append("Aspect \(actual) does not match \(required)")
+                }
+            }
+        }
+
+        if metadataString(item.metadata, keys: ["personaApproval", "personaApproved"]) == "false" {
+            warnings.append("Persona reference is not approved")
+        }
+
+        return warnings
+    }
+
+    private func metadataSummary(item: ImageItem, group: ReviewGroup?) -> String {
+        var lines: [String] = []
+        if let group = group {
+            let groupDecision = currentGroupDecision()
+            lines.append("Group")
+            lines.append("id: \(group.id)")
+            lines.append("label: \(group.label)")
+            lines.append("status: \(groupDecision?.status ?? "unreviewed")")
+            if let reviewType = group.reviewType ?? session.reviewType {
+                lines.append("reviewType: \(reviewType)")
+            }
+            if !group.itemIds.isEmpty {
+                lines.append("slides/items: \(group.itemIds.count)")
+            }
+            if let constraints = group.constraints, !constraints.isEmpty {
+                lines.append("")
+                appendMetadata(&lines, title: "Constraints", metadata: constraints, preferredKeys: ["minSelected", "maxSelected", "requiresOrder", "requiredAspect"])
+            }
+            let warnings = reviewWarnings(item: item, group: group)
+            if !warnings.isEmpty {
+                lines.append("")
+                lines.append("Warnings")
+                for warning in warnings {
+                    lines.append("- \(warning)")
+                }
+            }
+            lines.append("")
+            appendMetadata(
+                &lines,
+                title: "Group metadata",
+                metadata: group.metadata,
+                preferredKeys: [
+                    "personaId",
+                    "contentSetId",
+                    "briefId",
+                    "hook",
+                    "caption",
+                    "cta",
+                    "platform",
+                    "accountGroup",
+                    "oneLink",
+                    "externalId",
+                    "checklist"
+                ]
+            )
+        }
+
+        if !lines.isEmpty {
+            lines.append("")
+        }
+        appendMetadata(
+            &lines,
+            title: "Item metadata",
+            metadata: item.metadata,
+            preferredKeys: ["slideIndex", "role", "aspectRatio", "personaId", "externalId", "score", "checklist"]
+        )
+        return lines.joined(separator: "\n")
+    }
+
+    private func makeStoryboardDropSlot(targetItemId: String?, insertion: StoryboardInsertionPosition) -> StoryboardDropSlotView {
+        let slot = StoryboardDropSlotView()
+        slot.controller = self
+        slot.targetItemId = targetItemId
+        slot.insertion = insertion
+        slot.translatesAutoresizingMaskIntoConstraints = false
+        slot.widthAnchor.constraint(equalToConstant: 14).isActive = true
+        slot.heightAnchor.constraint(equalToConstant: 112).isActive = true
+        return slot
+    }
+
+    private func renderStoryboard() {
+        for view in storyboardStack.arrangedSubviews {
+            storyboardStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+
+        guard let group = currentGroup() else {
+            storyboardHeader.isHidden = true
+            storyboardScroll.isHidden = true
+            return
+        }
+
+        let items = orderedItems(for: group)
+        storyboardHeader.isHidden = false
+        storyboardScroll.isHidden = false
+        storyboardTitleLabel.stringValue = group.label
+        storyboardStatusLabel.stringValue = "\(items.count) items"
+
+        if let first = items.first {
+            storyboardStack.addArrangedSubview(makeStoryboardDropSlot(targetItemId: first.id, insertion: .before))
+        }
+
+        for (sequenceIndex, item) in items.enumerated() {
+            let button = StoryboardItemButton()
+            button.itemId = item.id
+            button.tag = sessionIndex(for: item.id) ?? item.index - 1
+            button.target = self
+            button.action = #selector(thumbnailPressed(_:))
+            button.title = "\(sequenceIndex + 1). \(metadataString(item.metadata, keys: ["role"]) ?? item.label)"
+            button.toolTip = "#\(item.index) \(item.filename) · \(statusLabel(session.decisions[item.id]?.status ?? "unreviewed"))"
+            button.bezelStyle = item.id == currentItem()?.id ? .regularSquare : .shadowlessSquare
+            button.imagePosition = .imageAbove
+            button.imageScaling = .scaleProportionallyUpOrDown
+            button.image = NSImage(contentsOfFile: item.path) ?? placeholderImage(text: "\(sequenceIndex + 1)")
+            button.cell?.lineBreakMode = .byTruncatingTail
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.widthAnchor.constraint(equalToConstant: 108).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 118).isActive = true
+            storyboardStack.addArrangedSubview(button)
+            storyboardStack.addArrangedSubview(makeStoryboardDropSlot(targetItemId: item.id, insertion: .after))
+        }
+    }
+
+    private func renderGroupActions() {
+        for view in groupActionStack.arrangedSubviews {
+            groupActionStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        groupActionButtons.removeAll()
+
+        guard currentGroup() != nil else {
+            let label = NSTextField(labelWithString: "No group for this image")
+            label.textColor = .secondaryLabelColor
+            groupActionStack.addArrangedSubview(label)
+            return
+        }
+
+        let actions = session.groupActions ?? []
+        let currentStatus = currentGroupDecision()?.status ?? "unreviewed"
+        if actions.isEmpty {
+            let label = NSTextField(labelWithString: "Status: \(statusLabel(currentStatus))")
+            label.textColor = .secondaryLabelColor
+            groupActionStack.addArrangedSubview(label)
+            return
+        }
+
+        for action in actions {
+            let button = NSButton(title: titleForAction(action), target: self, action: #selector(groupActionPressed(_:)))
+            button.identifier = NSUserInterfaceItemIdentifier(action)
+            button.bezelStyle = action == currentStatus ? .regularSquare : .rounded
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.heightAnchor.constraint(equalToConstant: 30).isActive = true
+            groupActionButtons[action] = button
+            groupActionStack.addArrangedSubview(button)
+        }
+    }
+
+    private func renderExtraItemActions() {
+        for view in extraItemActionStack.arrangedSubviews {
+            extraItemActionStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+
+        let defaultActions = Set(["use", "maybe", "reject"])
+        let actions = (session.itemActions ?? []).filter { !defaultActions.contains($0) }
+        if actions.isEmpty {
+            extraItemActionStack.isHidden = true
+            return
+        }
+
+        extraItemActionStack.isHidden = false
+        let currentStatus = currentDecision().status
+        for action in actions {
+            let button = NSButton(title: titleForAction(action), target: self, action: #selector(extraItemActionPressed(_:)))
+            button.identifier = NSUserInterfaceItemIdentifier(action)
+            button.bezelStyle = action == currentStatus ? .regularSquare : .rounded
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.heightAnchor.constraint(equalToConstant: 30).isActive = true
+            extraItemActionStack.addArrangedSubview(button)
+        }
     }
 
     private func renderThumbnails() {

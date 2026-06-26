@@ -22,6 +22,27 @@ function sessionPathFor(rootDir, sessionId) {
   return path.join(defaultSessionRoot(rootDir), "sessions", `${sessionId}.json`);
 }
 
+function latestSessionPath(rootDir) {
+  return path.join(defaultSessionRoot(rootDir), "sessions", "latest.json");
+}
+
+function linkLatestSession(rootDir, sessionFile) {
+  const latestPath = latestSessionPath(rootDir);
+  ensureDir(path.dirname(latestPath));
+
+  try {
+    if (fs.existsSync(latestPath) || fs.lstatSync(latestPath).isSymbolicLink()) fs.unlinkSync(latestPath);
+  } catch (_error) {
+    // Missing latest links are fine.
+  }
+
+  try {
+    fs.symlinkSync(path.basename(sessionFile), latestPath);
+  } catch (_error) {
+    fs.copyFileSync(sessionFile, latestPath);
+  }
+}
+
 function createSession(options) {
   const rootDir = options.rootDir || process.cwd();
   const title = options.title || "Image review";
@@ -38,9 +59,26 @@ function createSession(options) {
     };
   }
 
+  const groups = Array.isArray(options.groups) ? options.groups : [];
+  const groupDecisions = {};
+  for (const group of groups) {
+    groupDecisions[group.id] = {
+      status: "unreviewed",
+      note: "",
+      reviewedAt: null,
+      itemOrder: Array.isArray(group.itemIds) ? group.itemIds : [],
+    };
+  }
+
   const session = {
     version: SESSION_VERSION,
     id: sessionId,
+    kind: options.kind || "image_review",
+    reviewType: options.reviewType || (groups.length > 0 ? "grouped" : "multi_select"),
+    actions: options.actions || ["use", "maybe", "reject"],
+    itemActions: options.itemActions || ["use", "maybe", "reject"],
+    groupActions: options.groupActions || [],
+    metadata: options.metadata || {},
     title,
     prompt: options.prompt || "",
     rootDir,
@@ -50,10 +88,13 @@ function createSession(options) {
     currentIndex: 0,
     batchSize: options.batchSize || 20,
     items: options.items,
+    groups,
     decisions,
+    groupDecisions,
   };
 
   saveSession(sessionFile, session);
+  linkLatestSession(rootDir, sessionFile);
   return { session, sessionFile };
 }
 
@@ -99,7 +140,7 @@ function setDecision(session, payload) {
   const item = session.items.find((entry) => entry.id === payload.id);
   if (!item) throw new Error(`Unknown image id: ${payload.id}`);
 
-  const allowed = new Set(["unreviewed", "use", "reject", "maybe"]);
+  const allowed = new Set(["unreviewed", ...(session.itemActions || ["use", "reject", "maybe"])]);
   const status = payload.status || "unreviewed";
   if (!allowed.has(status)) {
     throw new Error(`Invalid status: ${status}`);
@@ -133,6 +174,7 @@ function setNote(session, payload) {
 module.exports = {
   createSession,
   defaultSessionRoot,
+  latestSessionPath,
   loadSession,
   saveSession,
   sessionPathFor,

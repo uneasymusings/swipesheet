@@ -6,14 +6,22 @@
 - Keyboard-driven review UI
 - Recursive folder scanning
 - JSON/text/CSV/TSV manifests
+- Grouped JSON review manifests
+- Group-level decisions and notes
+- Manifest-defined item and group actions
+- Storyboard/slideshow strip with drag reorder
 - Session persistence
 - Agent-ready text export
 - JSON export
+- Aut0gen grouped JSON export
+- Aut0gen persona/content-set manifest helpers
 
 ## Near-Term Improvements
 
 - Add a `--group-by` option for persona, roll, folder, or manifest field.
 - Add per-group quotas, such as "pick one per persona".
+- Add a larger group compare grid for one content set at a time.
+- Add quota warnings that understand `minSelected` and selected item counts.
 - Add a command that copies approved images into an output folder.
 - Add optional contact-sheet import helpers for numbered sheets.
 - Add a compact "compare current 4" view for near-duplicates.
