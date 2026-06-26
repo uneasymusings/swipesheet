@@ -598,6 +598,10 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         imageFrame.translatesAutoresizingMaskIntoConstraints = false
         imageView.imageScaling = .scaleProportionallyUpOrDown
         imageView.translatesAutoresizingMaskIntoConstraints = false
+        imageView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        imageView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        imageView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        imageView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         imageFrame.addSubview(imageView)
         reviewPane.addArrangedSubview(imageFrame)
 
@@ -606,7 +610,7 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
             imageView.trailingAnchor.constraint(equalTo: imageFrame.trailingAnchor),
             imageView.topAnchor.constraint(equalTo: imageFrame.topAnchor),
             imageView.bottomAnchor.constraint(equalTo: imageFrame.bottomAnchor),
-            imageFrame.heightAnchor.constraint(greaterThanOrEqualToConstant: 420)
+            imageFrame.heightAnchor.constraint(greaterThanOrEqualToConstant: 280)
         ])
 
         storyboardHeader.orientation = .horizontal
@@ -630,7 +634,7 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         storyboardStack.edgeInsets = NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
         storyboardScroll.documentView = storyboardStack
         reviewPane.addArrangedSubview(storyboardScroll)
-        storyboardScroll.heightAnchor.constraint(equalToConstant: 150).isActive = true
+        storyboardScroll.heightAnchor.constraint(equalToConstant: 132).isActive = true
 
         let thumbScroll = NSScrollView()
         thumbScroll.hasHorizontalScroller = true
@@ -642,7 +646,7 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         thumbnailStack.edgeInsets = NSEdgeInsets(top: 2, left: 2, bottom: 2, right: 2)
         thumbScroll.documentView = thumbnailStack
         reviewPane.addArrangedSubview(thumbScroll)
-        thumbScroll.heightAnchor.constraint(equalToConstant: 92).isActive = true
+        thumbScroll.heightAnchor.constraint(equalToConstant: 82).isActive = true
 
         let counterRow = NSStackView()
         counterRow.orientation = .horizontal
@@ -1383,6 +1387,21 @@ func placeholderImage(text: String) -> NSImage {
     return image
 }
 
+func reviewWindowContentRect() -> NSRect {
+    let visibleFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1280, height: 800)
+    let width = min(1080, max(720, visibleFrame.width * 0.86))
+    let height = min(720, max(560, visibleFrame.height * 0.84))
+    return NSRect(x: 0, y: 0, width: width, height: height)
+}
+
+func reviewWindowMinimumSize() -> NSSize {
+    let visibleFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1280, height: 800)
+    return NSSize(
+        width: min(900, max(680, visibleFrame.width * 0.72)),
+        height: min(620, max(520, visibleFrame.height * 0.72))
+    )
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let sessionPath: String
     private var window: ReviewWindow?
@@ -1397,12 +1416,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let session = try loadSession(path: sessionPath)
             let controller = ReviewViewController(session: session, sessionPath: sessionPath)
             let window = ReviewWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 1180, height: 760),
+                contentRect: reviewWindowContentRect(),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable],
                 backing: .buffered,
                 defer: false
             )
             window.title = "SwipeSheet"
+            window.minSize = reviewWindowMinimumSize()
             window.contentViewController = controller
             window.reviewController = controller
             window.center()
