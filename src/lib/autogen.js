@@ -66,7 +66,23 @@ function buildPersonaManifest(source, options = {}) {
       groups.push({
         id: personaId,
         label: personaId,
-        metadata: { personaId },
+        metadata: {
+          personaId,
+          description: `Candidate reference images for ${personaId}.`,
+          objective: "Choose the single strongest canonical persona reference.",
+          selectionCriteria: [
+            "Consistent identity and face structure",
+            "Clear, usable image quality",
+            "Strong styling for future generation references",
+            "No obvious artifacts, bad hands, or distorted anatomy",
+          ],
+          reviewInstructions: [
+            "Mark exactly one candidate as use when possible.",
+            "Use maybe for a fallback that needs notes.",
+            "Reject identity drift, low quality, or unusable references.",
+            "Approve the group when the canonical reference is selected.",
+          ],
+        },
         constraints: { minSelected: 1, maxSelected: 1 },
         items: images,
       });
@@ -135,10 +151,27 @@ function contentSetGroup(raw, index, baseDir) {
     `content_set_${String(index + 1).padStart(4, "0")}`;
   const label = raw.label || raw.title || raw.hook || raw.caption || String(id);
 
+  const metadata = {
+    description: "Storyboard or carousel content set prepared by aut0gen.",
+    objective: "Approve the creative sequence or request changes before publishing.",
+    selectionCriteria: [
+      "The hook is clear in the first slide",
+      "The sequence reads in order",
+      "The CTA and caption match the creative",
+      "Slides match platform and aspect-ratio requirements",
+    ],
+    reviewInstructions: [
+      "Drag the storyboard strip to reorder slides.",
+      "Mark individual slides as use, replace, or reject.",
+      "Use group actions for the final content-set decision.",
+    ],
+    ...objectMetadata(raw, new Set([...ITEM_ARRAY_FIELDS, "metadata", "constraints", "id", "label", "title", "name"])),
+  };
+
   return {
     id: String(id),
     label: String(label).slice(0, 120),
-    metadata: objectMetadata(raw, new Set([...ITEM_ARRAY_FIELDS, "metadata", "constraints", "id", "label", "title", "name"])),
+    metadata,
     constraints: {
       minSelected: raw.minSelected || raw.min_selected || undefined,
       maxSelected: raw.maxSelected || raw.max_images || raw.accountMaxImages || undefined,

@@ -204,6 +204,14 @@ Grouped review manifests let another system keep IDs, constraints, and ordered c
         "contentSetId": "cs_123",
         "briefId": "brief_abc",
         "platform": "tiktok",
+        "description": "What this group contains and why it exists.",
+        "objective": "What I should decide during review.",
+        "selectionCriteria": [
+          "The quality bar or acceptance criteria for this review"
+        ],
+        "reviewInstructions": [
+          "Specific instructions the presenting agent wants followed"
+        ],
         "caption": "...",
         "cta": "..."
       },
@@ -220,7 +228,8 @@ Grouped review manifests let another system keep IDs, constraints, and ordered c
           "label": "Hook slide",
           "metadata": {
             "slideIndex": 1,
-            "role": "hook"
+            "role": "hook",
+            "description": "What this specific asset is supposed to do."
           }
         }
       ]
@@ -229,7 +238,7 @@ Grouped review manifests let another system keep IDs, constraints, and ordered c
 }
 ```
 
-The native UI shows group metadata, constraints, checklist fields, warning lines, item metadata, group notes, group actions, and any extra item actions defined by the manifest. Grouped reviews also get a storyboard strip where the visual order is saved as `groupDecisions[groupId].itemOrder` and included in JSON/aut0gen exports.
+The native UI turns these fields into a review brief: what you are reviewing, how to decide, objective, criteria, instructions, checklist, content context, warnings, and current asset description. Grouped reviews also get a storyboard strip where the visual order is saved as `groupDecisions[groupId].itemOrder` and included in JSON/aut0gen exports.
 
 ## Sessions
 

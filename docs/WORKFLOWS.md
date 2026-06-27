@@ -89,6 +89,8 @@ The aut0gen export includes:
 - group decisions and notes
 - manifest metadata and constraints
 
+Agents presenting assets should fill the manifest with `description`, `objective`, `selectionCriteria`, `reviewInstructions`, `checklist`, and per-item `description` fields. SwipeSheet surfaces those as the review brief so you know what you are looking at and what decision is expected.
+
 Aut0gen can then apply the review with its own source-of-truth command, for example:
 
 ```bash

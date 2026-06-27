@@ -13,6 +13,19 @@
         "briefId": "brief_sample",
         "platform": "tiktok",
         "accountGroup": "demo",
+        "description": "A three-slide outdoor lifestyle storyboard for a short-form social post.",
+        "objective": "Approve the sequence only if it has a clear hook, coherent middle slide, and usable CTA ending.",
+        "selectionCriteria": [
+          "The first slide can stop the scroll",
+          "The sequence feels visually consistent",
+          "Every slide supports the caption and CTA",
+          "No slide has obvious generation artifacts"
+        ],
+        "reviewInstructions": [
+          "Drag slides into the strongest order if needed.",
+          "Mark any weak slide as replace and explain why in the image note.",
+          "Use the group decision for the final publish-readiness state."
+        ],
         "hook": "A quick visual story arc",
         "caption": "Review this sequence before publishing.",
         "cta": "Tap through for the full set.",
@@ -33,7 +46,8 @@
           "metadata": {
             "slideIndex": 1,
             "role": "hook",
-            "aspectRatio": "9:16"
+            "aspectRatio": "9:16",
+            "description": "Opening scenic frame intended to establish mood and stop the scroll."
           }
         },
         {
@@ -43,7 +57,8 @@
           "metadata": {
             "slideIndex": 2,
             "role": "proof",
-            "aspectRatio": "9:16"
+            "aspectRatio": "9:16",
+            "description": "Middle proof slide that should connect the visual story to the caption."
           }
         },
         {
@@ -53,7 +68,8 @@
           "metadata": {
             "slideIndex": 3,
             "role": "cta",
-            "aspectRatio": "9:16"
+            "aspectRatio": "9:16",
+            "description": "Closing slide that should make the call to action feel natural."
           }
         }
       ]

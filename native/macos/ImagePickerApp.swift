@@ -329,6 +329,10 @@ final class ReviewWindow: NSWindow {
     }
 }
 
+final class FlippedStackView: NSStackView {
+    override var isFlipped: Bool { true }
+}
+
 let storyboardPasteboardType = NSPasteboard.PasteboardType("com.swipesheet.storyboard-item-id")
 
 enum StoryboardInsertionPosition {
@@ -425,7 +429,7 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
     private let storyboardTitleLabel = NSTextField(labelWithString: "Storyboard sequence")
     private let storyboardStatusLabel = NSTextField(labelWithString: "")
     private let storyboardScroll = NSScrollView()
-    private let storyboardStack = NSStackView()
+    private let storyboardStack: NSStackView = FlippedStackView()
     private let thumbnailStack = NSStackView()
     private let positionLabel = NSTextField(labelWithString: "")
     private let statusLabelView = NSTextField(labelWithString: "")
@@ -536,12 +540,14 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
 
         let reviewPane = NSStackView()
         reviewPane.orientation = .vertical
+        reviewPane.alignment = .width
         reviewPane.spacing = 14
         reviewPane.edgeInsets = NSEdgeInsets(top: 18, left: 18, bottom: 18, right: 18)
         reviewPane.translatesAutoresizingMaskIntoConstraints = false
 
-        let sidePane = NSStackView()
+        let sidePane: NSStackView = FlippedStackView()
         sidePane.orientation = .vertical
+        sidePane.alignment = .width
         sidePane.spacing = 14
         sidePane.edgeInsets = NSEdgeInsets(top: 18, left: 18, bottom: 18, right: 18)
         sidePane.translatesAutoresizingMaskIntoConstraints = false
@@ -632,9 +638,11 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         storyboardStack.orientation = .horizontal
         storyboardStack.spacing = 8
         storyboardStack.edgeInsets = NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        storyboardStack.alignment = .centerY
+        storyboardStack.translatesAutoresizingMaskIntoConstraints = true
         storyboardScroll.documentView = storyboardStack
         reviewPane.addArrangedSubview(storyboardScroll)
-        storyboardScroll.heightAnchor.constraint(equalToConstant: 132).isActive = true
+        storyboardScroll.heightAnchor.constraint(equalToConstant: 112).isActive = true
 
         let thumbScroll = NSScrollView()
         thumbScroll.hasHorizontalScroller = true
@@ -669,27 +677,42 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         fileBlock.addArrangedSubview(pathLabel)
         sidePane.addArrangedSubview(fileBlock)
 
-        let metadataLabel = NSTextField(labelWithString: "Review metadata")
+        let metadataLabel = NSTextField(labelWithString: "Review brief")
         metadataLabel.font = NSFont.boldSystemFont(ofSize: 13)
         sidePane.addArrangedSubview(metadataLabel)
 
-        metadataTextView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        metadataTextView.font = NSFont.systemFont(ofSize: 12)
         metadataTextView.isEditable = false
         metadataTextView.isRichText = false
-        metadataTextView.textColor = .secondaryLabelColor
+        metadataTextView.textColor = .labelColor
+        metadataTextView.textContainerInset = NSSize(width: 8, height: 8)
+        metadataTextView.isHorizontallyResizable = false
+        metadataTextView.textContainer?.widthTracksTextView = true
         metadataScroll.documentView = metadataTextView
         metadataScroll.hasVerticalScroller = true
         metadataScroll.borderType = .bezelBorder
         sidePane.addArrangedSubview(metadataScroll)
         metadataScroll.heightAnchor.constraint(equalToConstant: 150).isActive = true
 
-        let buttonGrid = NSGridView(views: [
-            [makeDecisionButton(title: "X  Disregard", status: "reject"), makeDecisionButton(title: "Y  Use this", status: "use")],
-            [makeDecisionButton(title: "M  Maybe", status: "maybe"), makeButton(title: "N  Notes", action: #selector(focusNotes))]
-        ])
-        buttonGrid.rowSpacing = 8
-        buttonGrid.columnSpacing = 8
-        sidePane.addArrangedSubview(buttonGrid)
+        let itemActionRows = NSStackView()
+        itemActionRows.orientation = .vertical
+        itemActionRows.alignment = .width
+        itemActionRows.spacing = 8
+        let primaryActionRow = NSStackView()
+        primaryActionRow.orientation = .horizontal
+        primaryActionRow.distribution = .fillEqually
+        primaryActionRow.spacing = 8
+        primaryActionRow.addArrangedSubview(makeDecisionButton(title: "X  Disregard", status: "reject"))
+        primaryActionRow.addArrangedSubview(makeDecisionButton(title: "Y  Use this", status: "use"))
+        let secondaryActionRow = NSStackView()
+        secondaryActionRow.orientation = .horizontal
+        secondaryActionRow.distribution = .fillEqually
+        secondaryActionRow.spacing = 8
+        secondaryActionRow.addArrangedSubview(makeDecisionButton(title: "M  Maybe", status: "maybe"))
+        secondaryActionRow.addArrangedSubview(makeButton(title: "N  Notes", action: #selector(focusNotes)))
+        itemActionRows.addArrangedSubview(primaryActionRow)
+        itemActionRows.addArrangedSubview(secondaryActionRow)
+        sidePane.addArrangedSubview(itemActionRows)
 
         extraItemActionStack.orientation = .horizontal
         extraItemActionStack.spacing = 6
@@ -701,6 +724,7 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         sidePane.addArrangedSubview(groupActionLabel)
 
         groupActionStack.orientation = .vertical
+        groupActionStack.alignment = .width
         groupActionStack.spacing = 6
         sidePane.addArrangedSubview(groupActionStack)
 
@@ -757,7 +781,7 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         let button = NSButton(title: title, target: self, action: action)
         button.bezelStyle = .rounded
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.heightAnchor.constraint(equalToConstant: 40).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 34).isActive = true
         return button
     }
 
@@ -982,6 +1006,7 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         pathLabel.stringValue = item.path
         noteTextView.string = decision.note
         metadataTextView.string = metadataSummary(item: item, group: currentGroup())
+        metadataTextView.scrollToBeginningOfDocument(nil)
         groupNoteTextView.string = currentGroupDecision()?.note ?? ""
         useCountLabel.stringValue = "\(counts.use)\nUse"
         maybeCountLabel.stringValue = "\(counts.maybe)\nMaybe"
@@ -1017,6 +1042,95 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
             }
         }
         return nil
+    }
+
+    private func metadataList(_ metadata: [String: JSONValue]?, keys: [String]) -> [String] {
+        guard let metadata = metadata else { return [] }
+        for key in keys {
+            guard let value = metadata[key] else { continue }
+            switch value {
+            case .array(let array):
+                let values = array.map(jsonDisplay).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                if !values.isEmpty { return values }
+            case .object(let object):
+                let values = object.keys.sorted().map { key in "\(key): \(jsonDisplay(object[key]!))" }
+                if !values.isEmpty { return values }
+            default:
+                let display = jsonDisplay(value).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !display.isEmpty {
+                    return display
+                        .split(whereSeparator: \.isNewline)
+                        .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .filter { !$0.isEmpty }
+                }
+            }
+        }
+        return []
+    }
+
+    private func appendSection(_ lines: inout [String], _ title: String, _ body: String?) {
+        guard let body = body?.trimmingCharacters(in: .whitespacesAndNewlines), !body.isEmpty else { return }
+        if !lines.isEmpty { lines.append("") }
+        lines.append(title)
+        lines.append(body)
+    }
+
+    private func appendBullets(_ lines: inout [String], _ title: String, _ values: [String]) {
+        let clean = values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard !clean.isEmpty else { return }
+        if !lines.isEmpty { lines.append("") }
+        lines.append(title)
+        for value in clean {
+            lines.append("- \(value)")
+        }
+    }
+
+    private func appendFacts(_ lines: inout [String], _ title: String, _ facts: [(String, String?)]) {
+        let clean = facts.compactMap { label, value -> String? in
+            guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+            return "\(label): \(value)"
+        }
+        appendBullets(&lines, title, clean)
+    }
+
+    private func reviewModeGuidance(_ reviewType: String?, group: ReviewGroup?) -> String {
+        let type = reviewType ?? "multi_select"
+        switch type {
+        case "single_select_per_group":
+            return "Pick the single best asset for this group. Use item decisions for each candidate, then approve or request changes for the group."
+        case "storyboard", "slideshow_content_set":
+            return "Review the sequence as a set. Drag the storyboard strip to change order, mark weak slides for replacement, then approve or request changes for the group."
+        case "post_review":
+            return "Review the media and publishing payload together. Check the creative, caption, CTA, links, platform fit, and readiness before approving."
+        case "negative_reference_review":
+            return "Identify why rejected assets should not be used. Note prompt misses, identity drift, artifacts, bad hands, weak styling, or other failure reasons."
+        default:
+            if group != nil {
+                return "Review the current group as a structured set. Use item decisions for individual assets and group actions for the final state."
+            }
+            return "Review each asset and mark it as use, maybe, or reject. Add notes when the decision needs context."
+        }
+    }
+
+    private func constraintLines(for group: ReviewGroup) -> [String] {
+        guard let constraints = group.constraints else { return [] }
+        var lines: [String] = []
+        if let minSelected = constraints["minSelected"] {
+            lines.append("Minimum selected: \(jsonDisplay(minSelected))")
+        }
+        if let maxSelected = constraints["maxSelected"] ?? constraints["maxImages"] ?? constraints["accountMaxImages"] {
+            lines.append("Maximum selected: \(jsonDisplay(maxSelected))")
+        }
+        if let requiresOrder = constraints["requiresOrder"] {
+            lines.append("Requires order: \(jsonDisplay(requiresOrder))")
+        }
+        if let requiredAspect = constraints["requiredAspect"] {
+            lines.append("Required aspect: \(jsonDisplay(requiredAspect))")
+        }
+        for key in constraints.keys.sorted() where !["minSelected", "maxSelected", "maxImages", "accountMaxImages", "requiresOrder", "requiredAspect"].contains(key) {
+            lines.append("\(key): \(jsonDisplay(constraints[key]!))")
+        }
+        return lines
     }
 
     private func appendMetadata(_ lines: inout [String], title: String, metadata: [String: JSONValue]?, preferredKeys: [String]) {
@@ -1084,60 +1198,136 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
 
     private func metadataSummary(item: ImageItem, group: ReviewGroup?) -> String {
         var lines: [String] = []
+        let groupMetadata = group?.metadata ?? [:]
+        let itemMetadata = item.metadata ?? [:]
+        let reviewType = group?.reviewType ?? session.reviewType
+
+        appendSection(&lines, "What you are reviewing", group?.label ?? item.label)
+        appendSection(&lines, "How to decide", reviewModeGuidance(reviewType, group: group))
+        appendSection(&lines, "Session prompt", session.prompt)
+
         if let group = group {
             let groupDecision = currentGroupDecision()
-            lines.append("Group")
-            lines.append("id: \(group.id)")
-            lines.append("label: \(group.label)")
-            lines.append("status: \(groupDecision?.status ?? "unreviewed")")
-            if let reviewType = group.reviewType ?? session.reviewType {
-                lines.append("reviewType: \(reviewType)")
-            }
-            if !group.itemIds.isEmpty {
-                lines.append("slides/items: \(group.itemIds.count)")
-            }
-            if let constraints = group.constraints, !constraints.isEmpty {
-                lines.append("")
-                appendMetadata(&lines, title: "Constraints", metadata: constraints, preferredKeys: ["minSelected", "maxSelected", "requiresOrder", "requiredAspect"])
-            }
+
+            appendSection(
+                &lines,
+                "Agent description",
+                metadataString(group.metadata, keys: ["description", "briefDescription", "summary", "context", "creativeBrief"])
+            )
+            appendSection(
+                &lines,
+                "Goal",
+                metadataString(group.metadata, keys: ["objective", "goal", "reviewGoal", "desiredOutcome"])
+            )
+            appendBullets(
+                &lines,
+                "Selection criteria",
+                metadataList(group.metadata, keys: ["selectionCriteria", "criteria", "qualityBar", "acceptanceCriteria"])
+            )
+            appendBullets(
+                &lines,
+                "Review instructions",
+                metadataList(group.metadata, keys: ["reviewInstructions", "instructions", "directions", "notesForReviewer"])
+            )
+            appendBullets(
+                &lines,
+                "Checklist",
+                metadataList(group.metadata, keys: ["checklist", "reviewChecklist", "briefChecklist"])
+            )
+            appendFacts(
+                &lines,
+                "Content context",
+                [
+                    ("Hook", metadataString(group.metadata, keys: ["hook"])),
+                    ("Caption", metadataString(group.metadata, keys: ["caption"])),
+                    ("CTA", metadataString(group.metadata, keys: ["cta", "CTA", "callToAction"])),
+                    ("Platform", metadataString(group.metadata, keys: ["platform"])),
+                    ("Account group", metadataString(group.metadata, keys: ["accountGroup", "account_group"])),
+                    ("OneLink", metadataString(group.metadata, keys: ["oneLink", "onelink"])),
+                ]
+            )
+            appendFacts(
+                &lines,
+                "Group state",
+                [
+                    ("Status", groupDecision?.status ?? "unreviewed"),
+                    ("Review type", reviewType),
+                    ("Items", String(group.itemIds.count)),
+                ]
+            )
+            appendBullets(&lines, "Requirements", constraintLines(for: group))
+
             let warnings = reviewWarnings(item: item, group: group)
             if !warnings.isEmpty {
-                lines.append("")
-                lines.append("Warnings")
-                for warning in warnings {
-                    lines.append("- \(warning)")
-                }
+                appendBullets(&lines, "Warnings", warnings)
             }
-            lines.append("")
-            appendMetadata(
+
+            appendFacts(
                 &lines,
-                title: "Group metadata",
-                metadata: group.metadata,
-                preferredKeys: [
-                    "personaId",
-                    "contentSetId",
-                    "briefId",
-                    "hook",
-                    "caption",
-                    "cta",
-                    "platform",
-                    "accountGroup",
-                    "oneLink",
-                    "externalId",
-                    "checklist"
+                "IDs",
+                [
+                    ("Group", group.id),
+                    ("Persona", metadataString(group.metadata, keys: ["personaId"])),
+                    ("Content set", metadataString(group.metadata, keys: ["contentSetId"])),
+                    ("Brief", metadataString(group.metadata, keys: ["briefId"])),
+                    ("External", metadataString(group.metadata, keys: ["externalId"])),
                 ]
             )
         }
 
-        if !lines.isEmpty {
-            lines.append("")
-        }
-        appendMetadata(
+        appendFacts(
             &lines,
-            title: "Item metadata",
-            metadata: item.metadata,
-            preferredKeys: ["slideIndex", "role", "aspectRatio", "personaId", "externalId", "score", "checklist"]
+            "Current asset",
+            [
+                ("Label", item.label),
+                ("Role", metadataString(item.metadata, keys: ["role", "slideRole"])),
+                ("Slide", metadataString(item.metadata, keys: ["slideIndex", "index"])),
+                ("Aspect", metadataString(item.metadata, keys: ["aspectRatio", "aspect"])),
+                ("File", item.filename),
+            ]
         )
+        appendSection(
+            &lines,
+            "Asset description",
+            metadataString(item.metadata, keys: ["description", "summary", "rationale", "generationPrompt", "prompt"])
+        )
+        appendBullets(
+            &lines,
+            "Asset checklist",
+            metadataList(item.metadata, keys: ["checklist", "reviewChecklist"])
+        )
+        appendFacts(
+            &lines,
+            "Asset IDs",
+            [
+                ("Item", item.id),
+                ("Persona", metadataString(item.metadata, keys: ["personaId"])),
+                ("External", metadataString(item.metadata, keys: ["externalId"])),
+            ]
+        )
+
+        let knownGroupKeys = Set([
+            "description", "briefDescription", "summary", "context", "creativeBrief", "objective", "goal", "reviewGoal", "desiredOutcome",
+            "selectionCriteria", "criteria", "qualityBar", "acceptanceCriteria", "reviewInstructions", "instructions", "directions",
+            "notesForReviewer", "checklist", "reviewChecklist", "briefChecklist", "hook", "caption", "cta", "CTA", "callToAction",
+            "platform", "accountGroup", "account_group", "oneLink", "onelink", "personaId", "contentSetId", "briefId", "externalId"
+        ])
+        let additionalGroup = groupMetadata
+            .filter { !knownGroupKeys.contains($0.key) }
+            .map { "\($0.key): \(jsonDisplay($0.value))" }
+            .sorted()
+        appendBullets(&lines, "Additional group metadata", additionalGroup)
+
+        let knownItemKeys = Set([
+            "role", "slideRole", "slideIndex", "index", "aspectRatio", "aspect", "description", "summary", "rationale",
+            "generationPrompt", "prompt", "checklist", "reviewChecklist", "personaId", "externalId"
+        ])
+        let additionalItem = itemMetadata
+            .filter { !knownItemKeys.contains($0.key) }
+            .map { "\($0.key): \(jsonDisplay($0.value))" }
+            .sorted()
+        appendBullets(&lines, "Additional asset metadata", additionalItem)
+
         return lines.joined(separator: "\n")
     }
 
@@ -1147,8 +1337,8 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         slot.targetItemId = targetItemId
         slot.insertion = insertion
         slot.translatesAutoresizingMaskIntoConstraints = false
-        slot.widthAnchor.constraint(equalToConstant: 14).isActive = true
-        slot.heightAnchor.constraint(equalToConstant: 112).isActive = true
+        slot.widthAnchor.constraint(equalToConstant: 12).isActive = true
+        slot.heightAnchor.constraint(equalToConstant: 88).isActive = true
         return slot
     }
 
@@ -1180,19 +1370,31 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
             button.tag = sessionIndex(for: item.id) ?? item.index - 1
             button.target = self
             button.action = #selector(thumbnailPressed(_:))
-            button.title = "\(sequenceIndex + 1). \(metadataString(item.metadata, keys: ["role"]) ?? item.label)"
-            button.toolTip = "#\(item.index) \(item.filename) · \(statusLabel(session.decisions[item.id]?.status ?? "unreviewed"))"
+            let role = metadataString(item.metadata, keys: ["role"]) ?? item.label
+            button.title = ""
+            button.toolTip = "\(sequenceIndex + 1). \(role) · #\(item.index) \(item.filename) · \(statusLabel(session.decisions[item.id]?.status ?? "unreviewed"))"
             button.bezelStyle = item.id == currentItem()?.id ? .regularSquare : .shadowlessSquare
-            button.imagePosition = .imageAbove
+            button.imagePosition = .imageOnly
             button.imageScaling = .scaleProportionallyUpOrDown
-            button.image = NSImage(contentsOfFile: item.path) ?? placeholderImage(text: "\(sequenceIndex + 1)")
-            button.cell?.lineBreakMode = .byTruncatingTail
+            button.image = storyboardThumbnailImage(path: item.path, number: sequenceIndex + 1)
             button.translatesAutoresizingMaskIntoConstraints = false
-            button.widthAnchor.constraint(equalToConstant: 108).isActive = true
-            button.heightAnchor.constraint(equalToConstant: 118).isActive = true
+            button.widthAnchor.constraint(equalToConstant: 92).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 88).isActive = true
             storyboardStack.addArrangedSubview(button)
             storyboardStack.addArrangedSubview(makeStoryboardDropSlot(targetItemId: item.id, insertion: .after))
         }
+
+        storyboardStack.layoutSubtreeIfNeeded()
+        let fittingSize = storyboardStack.fittingSize
+        let viewport = storyboardScroll.contentView.bounds
+        storyboardStack.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: max(viewport.width, fittingSize.width),
+            height: max(viewport.height, fittingSize.height)
+        )
+        storyboardScroll.contentView.scroll(to: NSPoint(x: 0, y: 0))
+        storyboardScroll.reflectScrolledClipView(storyboardScroll.contentView)
     }
 
     private func renderGroupActions() {
@@ -1385,6 +1587,51 @@ func placeholderImage(text: String) -> NSImage {
     text.draw(in: rect, withAttributes: attributes)
     image.unlockFocus()
     return image
+}
+
+func storyboardThumbnailImage(path: String, number: Int) -> NSImage {
+    let size = NSSize(width: 184, height: 176)
+    let output = NSImage(size: size)
+    output.lockFocus()
+
+    NSColor.black.setFill()
+    NSBezierPath(rect: NSRect(origin: .zero, size: size)).fill()
+
+    if let source = NSImage(contentsOfFile: path), source.size.width > 0, source.size.height > 0 {
+        let scale = min(size.width / source.size.width, size.height / source.size.height)
+        let drawSize = NSSize(width: source.size.width * scale, height: source.size.height * scale)
+        let drawRect = NSRect(
+            x: (size.width - drawSize.width) / 2,
+            y: (size.height - drawSize.height) / 2,
+            width: drawSize.width,
+            height: drawSize.height
+        )
+        source.draw(in: drawRect, from: .zero, operation: .sourceOver, fraction: 1)
+    } else {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        let attributes: [NSAttributedString.Key: Any] = [
+            .foregroundColor: NSColor.white,
+            .font: NSFont.systemFont(ofSize: 28),
+            .paragraphStyle: paragraph
+        ]
+        "\(number)".draw(in: NSRect(x: 0, y: 66, width: size.width, height: 42), withAttributes: attributes)
+    }
+
+    let badgeRect = NSRect(x: 10, y: size.height - 34, width: 30, height: 24)
+    NSColor.windowBackgroundColor.withAlphaComponent(0.92).setFill()
+    NSBezierPath(roundedRect: badgeRect, xRadius: 8, yRadius: 8).fill()
+    let paragraph = NSMutableParagraphStyle()
+    paragraph.alignment = .center
+    let badgeAttributes: [NSAttributedString.Key: Any] = [
+        .foregroundColor: NSColor.labelColor,
+        .font: NSFont.boldSystemFont(ofSize: 13),
+        .paragraphStyle: paragraph
+    ]
+    "\(number)".draw(in: NSRect(x: badgeRect.minX, y: badgeRect.minY + 4, width: badgeRect.width, height: 16), withAttributes: badgeAttributes)
+
+    output.unlockFocus()
+    return output
 }
 
 func reviewWindowContentRect() -> NSRect {
