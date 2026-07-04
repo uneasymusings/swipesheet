@@ -26,6 +26,46 @@ function latestSessionPath(rootDir) {
   return path.join(defaultSessionRoot(rootDir), "sessions", "latest.json");
 }
 
+function assertUniqueIds(entries, label) {
+  const seen = new Set();
+  for (const entry of entries || []) {
+    if (!entry || !entry.id) throw new Error(`Invalid ${label}: missing id`);
+    if (seen.has(entry.id)) throw new Error(`Duplicate ${label} id: ${entry.id}`);
+    seen.add(entry.id);
+  }
+}
+
+function withSkippedAction(actions) {
+  const values = Array.isArray(actions) ? actions.filter(Boolean) : [];
+  return values.includes("skipped") ? values : [...values, "skipped"];
+}
+
+function newestTimestampedSession(sessionDir) {
+  if (!fs.existsSync(sessionDir)) return null;
+  const candidates = fs
+    .readdirSync(sessionDir)
+    .filter((name) => name.endsWith(".json") && name !== "latest.json")
+    .map((name) => path.join(sessionDir, name))
+    .filter((filePath) => fs.statSync(filePath).isFile())
+    .sort((a, b) => path.basename(b).localeCompare(path.basename(a)));
+  return candidates[0] || null;
+}
+
+function resolveSessionFile(sessionFile) {
+  const absolutePath = path.resolve(sessionFile);
+  if (path.basename(absolutePath) !== "latest.json") return absolutePath;
+
+  try {
+    if (fs.lstatSync(absolutePath).isSymbolicLink()) {
+      return fs.realpathSync.native(absolutePath);
+    }
+  } catch (_error) {
+    // Fall through to the copy-fallback behavior below.
+  }
+
+  return newestTimestampedSession(path.dirname(absolutePath)) || absolutePath;
+}
+
 function linkLatestSession(rootDir, sessionFile) {
   const latestPath = latestSessionPath(rootDir);
   ensureDir(path.dirname(latestPath));
@@ -49,6 +89,7 @@ function createSession(options) {
   const slug = slugify(options.sessionName || title, "review");
   const sessionId = `${timestampForFile()}-${slug}`;
   const sessionFile = sessionPathFor(rootDir, sessionId);
+  assertUniqueIds(options.items, "item");
 
   const decisions = {};
   for (const item of options.items) {
@@ -60,6 +101,7 @@ function createSession(options) {
   }
 
   const groups = Array.isArray(options.groups) ? options.groups : [];
+  assertUniqueIds(groups, "group");
   const groupDecisions = {};
   for (const group of groups) {
     groupDecisions[group.id] = {
@@ -77,7 +119,7 @@ function createSession(options) {
     reviewType: options.reviewType || (groups.length > 0 ? "grouped" : "multi_select"),
     actions: options.actions || ["use", "maybe", "reject"],
     itemActions: options.itemActions || ["use", "maybe", "reject"],
-    groupActions: options.groupActions || [],
+    groupActions: groups.length > 0 ? withSkippedAction(options.groupActions || []) : options.groupActions || [],
     metadata: options.metadata || {},
     title,
     prompt: options.prompt || "",
@@ -99,11 +141,16 @@ function createSession(options) {
 }
 
 function loadSession(sessionFile) {
-  const absolutePath = path.resolve(sessionFile);
+  const absolutePath = resolveSessionFile(sessionFile);
   const session = JSON.parse(fs.readFileSync(absolutePath, "utf8"));
   if (!session.version || !session.items || !session.decisions) {
     throw new Error(`Invalid session file: ${absolutePath}`);
   }
+  if (session.version > SESSION_VERSION) {
+    throw new Error(`Unsupported session version ${session.version}: ${absolutePath}`);
+  }
+  assertUniqueIds(session.items, "item");
+  assertUniqueIds(session.groups || [], "group");
   return { session, sessionFile: absolutePath };
 }
 
@@ -176,6 +223,7 @@ module.exports = {
   defaultSessionRoot,
   latestSessionPath,
   loadSession,
+  resolveSessionFile,
   saveSession,
   sessionPathFor,
   setDecision,

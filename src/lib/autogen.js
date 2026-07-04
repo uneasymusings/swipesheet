@@ -70,6 +70,15 @@ function buildPersonaManifest(source, options = {}) {
           personaId,
           description: `Candidate reference images for ${personaId}.`,
           objective: "Choose the single strongest canonical persona reference.",
+          actionLabels: {
+            use: "Canonical",
+            maybe: "Keeper",
+            reject: "Drop",
+            approve: `Confirm ${personaId} canonical`,
+            request_changes: "Regenerate candidates",
+            skipped: "Skip for now",
+          },
+          noteRequiredStatuses: ["maybe", "request_changes", "reject"],
           selectionCriteria: [
             "Consistent identity and face structure",
             "Clear, usable image quality",
@@ -154,6 +163,16 @@ function contentSetGroup(raw, index, baseDir) {
   const metadata = {
     description: "Storyboard or carousel content set prepared by aut0gen.",
     objective: "Approve the creative sequence or request changes before publishing.",
+    actionLabels: {
+      use: "Use slide",
+      replace: "Replace slide",
+      reject: "Reject slide",
+      approve_sequence: "Approve sequence",
+      needs_reorder: "Needs reorder",
+      request_changes: "Request changes",
+      skipped: "Skip for now",
+    },
+    noteRequiredStatuses: ["replace", "reject", "needs_reorder", "request_changes"],
     selectionCriteria: [
       "The hook is clear in the first slide",
       "The sequence reads in order",

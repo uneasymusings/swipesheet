@@ -89,7 +89,9 @@ The aut0gen export includes:
 - group decisions and notes
 - manifest metadata and constraints
 
-Agents presenting assets should fill the manifest with `description`, `objective`, `selectionCriteria`, `reviewInstructions`, `checklist`, and per-item `description` fields. SwipeSheet surfaces those as the review brief so you know what you are looking at and what decision is expected.
+Agents presenting assets should fill the manifest with `description`, `objective`, `selectionCriteria`, `reviewInstructions`, `checklist`, `actionLabels`, `noteRequiredStatuses`, and per-item `description` fields. Persona sessions should add `personaContext`; publish/content-set sessions should add `consequence`, `accountHandles`, `scheduledLocal`, `creditCostEstimate`, `creditsRemaining`, `publicMediaUrl`, and `videoPath` when available. SwipeSheet surfaces those as the review brief so you know what you are looking at, what decision is expected, and what happens after approval.
+
+Grouped sessions validate before export. Constraints such as `minSelected` and `maxSelected` are checked against the number of `use` decisions, group decisions must be confirmed or explicitly `skipped`, and statuses listed in `noteRequiredStatuses` require notes.
 
 Aut0gen can then apply the review with its own source-of-truth command, for example:
 
@@ -151,6 +153,14 @@ swipesheet export .swipesheet/sessions/latest.json --format autogen
 ```bash
 swipesheet resume .swipesheet/sessions/<session>.json
 ```
+
+It is also safe to resume the pointer:
+
+```bash
+swipesheet resume .swipesheet/sessions/latest.json
+```
+
+SwipeSheet resolves `latest.json` to the timestamped session before opening the native app.
 
 ## Exporting From the Terminal
 

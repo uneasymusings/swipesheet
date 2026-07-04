@@ -34,6 +34,7 @@ At the end, **Finish and export** gives you copy-ready text with selected images
 - Recursive folder scanning and manifest-based review.
 - Plain JSON session files you can resume or inspect.
 - Copy-ready AI-agent export plus JSON export for scripts.
+- Grouped review sessions with constraints, group decisions, reorderable storyboards, and finish-time validation.
 - Works as a reusable CLI from any project directory.
 
 ## Quick Start
@@ -204,6 +205,12 @@ Grouped review manifests let another system keep IDs, constraints, and ordered c
         "contentSetId": "cs_123",
         "briefId": "brief_abc",
         "platform": "tiktok",
+        "actionLabels": {
+          "use": "Use slide",
+          "replace": "Replace slide",
+          "approve_sequence": "Approve sequence"
+        },
+        "noteRequiredStatuses": ["replace", "request_changes"],
         "description": "What this group contains and why it exists.",
         "objective": "What I should decide during review.",
         "selectionCriteria": [
@@ -238,7 +245,9 @@ Grouped review manifests let another system keep IDs, constraints, and ordered c
 }
 ```
 
-The native UI turns these fields into a review brief: what you are reviewing, how to decide, objective, criteria, instructions, checklist, content context, warnings, and current asset description. Grouped reviews also get a storyboard strip where the visual order is saved as `groupDecisions[groupId].itemOrder` and included in JSON/aut0gen exports.
+The native UI turns these fields into a review brief: what you are reviewing, how to decide, objective, criteria, instructions, checklist, content context, persona context, publish readiness, warnings, and current asset description. Grouped reviews also get a group rail and a storyboard strip where the visual order is saved as `groupDecisions[groupId].itemOrder` and included in JSON/aut0gen exports.
+
+`metadata.actionLabels` changes button text without changing raw statuses on disk. `metadata.noteRequiredStatuses` makes finish-time validation require notes for statuses such as `replace`, `request_changes`, or `maybe`.
 
 ## Sessions
 
@@ -254,6 +263,10 @@ Sessions are saved under the project where you run the command:
 ```
 
 That makes it practical for other repos to invoke the tool. A portfolio repo can keep its own review history, while an AI content pipeline can keep approval sessions next to generated outputs.
+
+`latest.json` is treated as a pointer. `swipesheet resume .swipesheet/sessions/latest.json` resolves to the timestamped session before opening the native app, and regular-file fallback copies prefer the newest timestamped session.
+
+For grouped sessions, `finishedAt` is only written after validation passes or unresolved groups are explicitly marked `skipped`.
 
 ## Export Example
 
