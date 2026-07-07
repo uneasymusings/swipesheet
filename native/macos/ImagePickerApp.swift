@@ -405,6 +405,59 @@ final class FlippedStackView: NSStackView {
     override var isFlipped: Bool { true }
 }
 
+final class PaddedTextFieldCell: NSTextFieldCell {
+    var contentInsets = NSEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)
+
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        let base = super.drawingRect(forBounds: rect)
+        return NSRect(
+            x: base.origin.x + contentInsets.left,
+            y: base.origin.y + contentInsets.top,
+            width: base.width - contentInsets.left - contentInsets.right,
+            height: base.height - contentInsets.top - contentInsets.bottom
+        )
+    }
+}
+
+final class PaddedLabel: NSTextField {
+    var contentInsets = NSEdgeInsets(top: 8, left: 10, bottom: 8, right: 10) {
+        didSet {
+            (cell as? PaddedTextFieldCell)?.contentInsets = contentInsets
+            invalidateIntrinsicContentSize()
+        }
+    }
+
+    convenience init(labelWithString stringValue: String) {
+        self.init(frame: .zero)
+        self.stringValue = stringValue
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configure()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configure()
+    }
+
+    private func configure() {
+        let paddedCell = PaddedTextFieldCell(textCell: stringValue)
+        paddedCell.contentInsets = contentInsets
+        cell = paddedCell
+        isEditable = false
+        isSelectable = false
+        isBordered = false
+        drawsBackground = false
+    }
+
+    override var intrinsicContentSize: NSSize {
+        let size = super.intrinsicContentSize
+        return NSSize(width: size.width + contentInsets.left + contentInsets.right, height: size.height + contentInsets.top + contentInsets.bottom)
+    }
+}
+
 let storyboardPasteboardType = NSPasteboard.PasteboardType("com.swipesheet.storyboard-item-id")
 
 enum StoryboardInsertionPosition {
@@ -504,21 +557,23 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
     private let storyboardStack: NSStackView = FlippedStackView()
     private let thumbnailStack = NSStackView()
     private let positionLabel = NSTextField(labelWithString: "")
-    private let statusLabelView = NSTextField(labelWithString: "")
+    private let statusLabelView = PaddedLabel(labelWithString: "")
     private let groupRailScroll = NSScrollView()
     private let groupRailStack: NSStackView = FlippedStackView()
-    private let consequenceBanner = NSTextField(labelWithString: "")
+    private let consequenceBanner = PaddedLabel(labelWithString: "")
     private let groupActionLabel = NSTextField(labelWithString: "Group review")
     private let filenameLabel = NSTextField(labelWithString: "")
     private let pathLabel = NSTextField(labelWithString: "")
     private let metadataScroll = NSScrollView()
     private let metadataTextView = NSTextView()
-    private let warningLabel = NSTextField(labelWithString: "")
+    private let warningLabel = PaddedLabel(labelWithString: "")
     private let groupActionStack = NSStackView()
+    private let groupNoteLabel = NSTextField(labelWithString: "Group note")
     private let groupNoteScroll = NSScrollView()
     private let groupNoteTextView = NSTextView()
     private let itemActionRows = NSStackView()
     private let extraItemActionStack = NSStackView()
+    private let noteLabel = NSTextField(labelWithString: "Image note")
     private let noteScroll = NSScrollView()
     private let noteTextView = NSTextView()
     private let useCountLabel = NSTextField(labelWithString: "0\nUse")
@@ -682,7 +737,7 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
             root.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             root.topAnchor.constraint(equalTo: view.topAnchor),
             root.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            sideScroll.widthAnchor.constraint(equalToConstant: 380),
+            sideScroll.widthAnchor.constraint(equalToConstant: 420),
             sidePane.widthAnchor.constraint(equalTo: sideScroll.contentView.widthAnchor)
         ])
 
@@ -773,6 +828,10 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
         counterRow.distribution = .equalSpacing
         positionLabel.textColor = .secondaryLabelColor
         statusLabelView.font = NSFont.boldSystemFont(ofSize: 12)
+        statusLabelView.alignment = .center
+        statusLabelView.wantsLayer = true
+        statusLabelView.layer?.cornerRadius = 6
+        statusLabelView.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         counterRow.addArrangedSubview(positionLabel)
         counterRow.addArrangedSubview(statusLabelView)
         sidePane.addArrangedSubview(counterRow)
@@ -794,7 +853,7 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
         consequenceBanner.lineBreakMode = .byWordWrapping
         consequenceBanner.wantsLayer = true
         consequenceBanner.layer?.cornerRadius = 6
-        consequenceBanner.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.22).cgColor
+        consequenceBanner.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.18).cgColor
         consequenceBanner.isHidden = true
         sidePane.addArrangedSubview(consequenceBanner)
 
@@ -842,11 +901,15 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
         metadataScroll.hasVerticalScroller = true
         metadataScroll.borderType = .bezelBorder
         sidePane.addArrangedSubview(metadataScroll)
-        metadataScroll.heightAnchor.constraint(equalToConstant: 150).isActive = true
+        metadataScroll.heightAnchor.constraint(equalToConstant: 178).isActive = true
 
         warningLabel.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
-        warningLabel.textColor = .systemRed
+        warningLabel.textColor = .labelColor
         warningLabel.maximumNumberOfLines = 4
+        warningLabel.lineBreakMode = .byWordWrapping
+        warningLabel.wantsLayer = true
+        warningLabel.layer?.cornerRadius = 6
+        warningLabel.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.12).cgColor
         warningLabel.isHidden = true
         sidePane.addArrangedSubview(warningLabel)
 
@@ -881,10 +944,11 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
         groupNoteScroll.documentView = groupNoteTextView
         groupNoteScroll.hasVerticalScroller = true
         groupNoteScroll.borderType = .bezelBorder
+        groupNoteLabel.font = NSFont.boldSystemFont(ofSize: 13)
+        sidePane.addArrangedSubview(groupNoteLabel)
         sidePane.addArrangedSubview(groupNoteScroll)
         groupNoteScroll.heightAnchor.constraint(equalToConstant: 80).isActive = true
 
-        let noteLabel = NSTextField(labelWithString: "Feedback for this image")
         noteLabel.font = NSFont.boldSystemFont(ofSize: 13)
         sidePane.addArrangedSubview(noteLabel)
 
@@ -1422,6 +1486,7 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
         progressLabel.stringValue = [itemProgress, groupProgressText()].compactMap { $0 }.joined(separator: " · ")
         positionLabel.stringValue = "\(item.index) of \(session.items.count)"
         statusLabelView.stringValue = statusLabel(decision.status)
+        updateStatusChip(status: decision.status)
         filenameLabel.stringValue = item.filename
         pathLabel.stringValue = item.path
         noteTextView.string = decision.note
@@ -1430,9 +1495,7 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
         updateConsequenceBanner(group: currentGroup())
         updateModeControls(group: currentGroup())
         updateWarningLabel(item: item, group: currentGroup())
-        useCountLabel.stringValue = "\(counts.use)\nUse"
-        maybeCountLabel.stringValue = "\(counts.maybe)\nMaybe"
-        rejectCountLabel.stringValue = "\(counts.reject)\nReject"
+        updateStatsLabels(counts: counts, group: currentGroup())
 
         imageView.image = NSImage(contentsOfFile: item.path)
         if imageView.image == nil {
@@ -1474,8 +1537,29 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
             parts.append(facts.joined(separator: " · "))
         }
 
-        consequenceBanner.stringValue = parts.joined(separator: "\n")
+        consequenceBanner.stringValue = parts.isEmpty ? "" : "Publish impact\n" + parts.joined(separator: "\n")
         consequenceBanner.isHidden = parts.isEmpty
+    }
+
+    private func statusColor(_ status: String) -> NSColor {
+        switch status {
+        case "use", "approve", "approve_sequence":
+            return .systemGreen
+        case "maybe", "replace", "request_changes", "needs_reorder":
+            return .systemYellow
+        case "reject":
+            return .systemRed
+        case "skipped":
+            return .systemGray
+        default:
+            return .separatorColor
+        }
+    }
+
+    private func updateStatusChip(status: String) {
+        let color = statusColor(status)
+        statusLabelView.layer?.backgroundColor = color.withAlphaComponent(0.14).cgColor
+        statusLabelView.textColor = status == "unreviewed" ? .secondaryLabelColor : .labelColor
     }
 
     private func updateModeControls(group: ReviewGroup?) {
@@ -1483,8 +1567,40 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
         itemActionRows.isHidden = postReview
         extraItemActionStack.isHidden = postReview || extraItemActionStack.isHidden
         openMediaButton.isHidden = currentMediaURL() == nil
+        openMediaButton.title = mediaButtonTitle(group: group)
         finishButton?.title = isAutogenReview() ? "Finish review" : "Finish and export"
-        groupActionLabel.stringValue = postReview ? "Group review: A approve · R reject · C changes" : "Group review"
+        groupActionLabel.stringValue = postReview ? "Publish decision" : "Group review"
+        groupNoteLabel.stringValue = postReview ? "Decision note" : "Group note"
+        noteLabel.stringValue = postReview ? "Frame note" : "Image note"
+    }
+
+    private func mediaButtonTitle(group: ReviewGroup?) -> String {
+        guard let group = group else { return "Open media" }
+        if metadataString(group.metadata, keys: ["videoPath"]) != nil {
+            return "Open video"
+        }
+        if metadataString(group.metadata, keys: ["publicMediaUrl", "mediaUrl", "mediaURL", "url"]) != nil {
+            return "Open media URL"
+        }
+        if metadataString(group.metadata, keys: ["oneLink", "onelink"]) != nil {
+            return "Open OneLink"
+        }
+        return "Open media"
+    }
+
+    private func updateStatsLabels(counts: ProgressCounts, group: ReviewGroup?) {
+        useCountLabel.stringValue = "\(counts.use)\n\(compactActionLabel("use", group: group))"
+        maybeCountLabel.stringValue = "\(counts.maybe)\n\(compactActionLabel("maybe", group: group))"
+        rejectCountLabel.stringValue = "\(counts.reject)\n\(compactActionLabel("reject", group: group))"
+        useCountLabel.layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.10).cgColor
+        maybeCountLabel.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.12).cgColor
+        rejectCountLabel.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.10).cgColor
+    }
+
+    private func compactActionLabel(_ action: String, group: ReviewGroup?) -> String {
+        let label = itemActionLabel(action, group: group)
+        if label.count <= 12 { return label }
+        return String(label.prefix(11)) + "."
     }
 
     private func actionLabel(_ action: String, group: ReviewGroup? = nil, scope: String? = "group") -> String {
@@ -1786,7 +1902,7 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
             return
         }
         warningLabel.isHidden = false
-        warningLabel.stringValue = warnings.prefix(4).map { "• \($0)" }.joined(separator: "\n")
+        warningLabel.stringValue = "Needs attention\n" + warnings.prefix(4).map { "- \($0)" }.joined(separator: "\n")
     }
 
     private func metadataSummary(item: ImageItem, group: ReviewGroup?) -> String {
@@ -1968,18 +2084,18 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
         let selectedText = "\(selected) \(itemActionLabel("use", group: group))"
 
         if decision.status == "skipped" {
-            return ("[Skip]", "Skipped, \(selectedText)")
+            return ("Skip", "Skipped, \(selectedText)")
         }
 
         if decision.status != "unreviewed" {
-            return ("[Done]", "\(actionLabel(decision.status, group: group)), \(selectedText)")
+            return ("Done", "\(actionLabel(decision.status, group: group)), \(selectedText)")
         }
 
         if selected > 0 || isGroupFullyReviewed(group) {
-            return ("[Pick]", "Picked but unconfirmed, \(selectedText)")
+            return ("Picked", "Picked but unconfirmed, \(selectedText)")
         }
 
-        return ("[Open]", "Undecided, \(selectedText)")
+        return ("Open", "Undecided, \(selectedText)")
     }
 
     private func renderGroupRail() {
@@ -2110,12 +2226,15 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
         }
 
         let group = currentGroup()
+        let prominent = isPostReviewMode(group: group)
         for action in actions {
             let button = NSButton(title: groupActionTitle(action, group: group), target: self, action: #selector(groupActionPressed(_:)))
             button.identifier = NSUserInterfaceItemIdentifier(action)
             button.bezelStyle = action == currentStatus ? .regularSquare : .rounded
+            button.controlSize = prominent ? .large : .regular
+            button.font = NSFont.systemFont(ofSize: prominent ? 13 : 12, weight: action == currentStatus ? .semibold : .regular)
             button.translatesAutoresizingMaskIntoConstraints = false
-            button.heightAnchor.constraint(equalToConstant: 30).isActive = true
+            button.heightAnchor.constraint(equalToConstant: prominent ? 36 : 30).isActive = true
             groupActionButtons[action] = button
             groupActionStack.addArrangedSubview(button)
         }
