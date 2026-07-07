@@ -205,12 +205,14 @@ Grouped review manifests let another system keep IDs, constraints, and ordered c
         "contentSetId": "cs_123",
         "briefId": "brief_abc",
         "platform": "tiktok",
-        "actionLabels": {
+        "itemActionLabels": {
           "use": "Use slide",
-          "replace": "Replace slide",
+          "replace": "Replace slide"
+        },
+        "groupActionLabels": {
           "approve_sequence": "Approve sequence"
         },
-        "noteRequiredStatuses": ["replace", "request_changes"],
+        "noteRequiredStatuses": ["request_changes"],
         "description": "What this group contains and why it exists.",
         "objective": "What I should decide during review.",
         "selectionCriteria": [
@@ -247,7 +249,7 @@ Grouped review manifests let another system keep IDs, constraints, and ordered c
 
 The native UI turns these fields into a review brief: what you are reviewing, how to decide, objective, criteria, instructions, checklist, content context, persona context, publish readiness, warnings, and current asset description. Grouped reviews also get a group rail and a storyboard strip where the visual order is saved as `groupDecisions[groupId].itemOrder` and included in JSON/aut0gen exports.
 
-`metadata.actionLabels` changes button text without changing raw statuses on disk. `metadata.noteRequiredStatuses` makes finish-time validation require notes for statuses such as `replace`, `request_changes`, or `maybe`.
+`metadata.itemActionLabels` and `metadata.groupActionLabels` change button text without changing raw statuses on disk. Legacy `metadata.actionLabels` is still read as a group-label fallback. `metadata.noteRequiredStatuses` is group-scoped and makes finish-time validation require group notes for statuses such as `request_changes` or `needs_reorder`.
 
 ## Sessions
 

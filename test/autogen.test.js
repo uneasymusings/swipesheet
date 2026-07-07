@@ -28,9 +28,9 @@ test("persona manifests include canonical labels and note requirements", () => {
   assert.deepEqual(manifest.itemActions, ["use", "maybe", "reject"]);
   assert.equal(group.constraints.minSelected, 1);
   assert.equal(group.constraints.maxSelected, 1);
-  assert.equal(group.metadata.actionLabels.use, "Canonical");
-  assert.equal(group.metadata.actionLabels.approve, "Confirm mari canonical");
-  assert.deepEqual(group.metadata.noteRequiredStatuses, ["maybe", "request_changes", "reject"]);
+  assert.equal(group.metadata.itemActionLabels.use, "Canonical");
+  assert.equal(group.metadata.groupActionLabels.approve, "Confirm mari canonical");
+  assert.deepEqual(group.metadata.noteRequiredStatuses, ["request_changes"]);
 });
 
 test("content-set manifests include publish review labels and note requirements", () => {
@@ -61,9 +61,9 @@ test("content-set manifests include publish review labels and note requirements"
 
   assert.equal(manifest.reviewType, "storyboard");
   assert.deepEqual(manifest.itemActions, ["use", "replace", "reject"]);
-  assert.equal(group.metadata.actionLabels.replace, "Replace slide");
-  assert.equal(group.metadata.actionLabels.approve_sequence, "Approve sequence");
-  assert.deepEqual(group.metadata.noteRequiredStatuses, ["replace", "reject", "needs_reorder", "request_changes"]);
+  assert.equal(group.metadata.itemActionLabels.replace, "Replace slide");
+  assert.equal(group.metadata.groupActionLabels.approve_sequence, "Approve sequence");
+  assert.deepEqual(group.metadata.noteRequiredStatuses, ["needs_reorder", "request_changes"]);
   assert.equal(group.metadata.hook, "Best EDC pocket tool");
   assert.equal(group.constraints.requiresOrder, true);
 });

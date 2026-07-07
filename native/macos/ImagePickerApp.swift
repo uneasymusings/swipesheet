@@ -150,11 +150,25 @@ struct ProgressCounts {
     var maybe = 0
 }
 
+enum ReviewIssueFocus {
+    case itemNote
+    case groupNote
+    case group
+}
+
+enum GroupActionKind {
+    case approve
+    case reject
+    case changes
+}
+
 struct ReviewIssue {
     var groupId: String?
     var itemId: String?
     var message: String
     var blocking: Bool
+    var skippable: Bool
+    var focus: ReviewIssueFocus
 }
 
 let isoFormatter: ISO8601DateFormatter = {
@@ -474,7 +488,7 @@ final class StoryboardDropSlotView: NSView {
     }
 }
 
-final class ReviewViewController: NSViewController, NSTextViewDelegate {
+final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindowDelegate {
     private var session: ReviewSession
     private let sessionPath: String
 
@@ -493,6 +507,8 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
     private let statusLabelView = NSTextField(labelWithString: "")
     private let groupRailScroll = NSScrollView()
     private let groupRailStack: NSStackView = FlippedStackView()
+    private let consequenceBanner = NSTextField(labelWithString: "")
+    private let groupActionLabel = NSTextField(labelWithString: "Group review")
     private let filenameLabel = NSTextField(labelWithString: "")
     private let pathLabel = NSTextField(labelWithString: "")
     private let metadataScroll = NSScrollView()
@@ -501,12 +517,15 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
     private let groupActionStack = NSStackView()
     private let groupNoteScroll = NSScrollView()
     private let groupNoteTextView = NSTextView()
+    private let itemActionRows = NSStackView()
     private let extraItemActionStack = NSStackView()
     private let noteScroll = NSScrollView()
     private let noteTextView = NSTextView()
     private let useCountLabel = NSTextField(labelWithString: "0\nUse")
     private let maybeCountLabel = NSTextField(labelWithString: "0\nMaybe")
     private let rejectCountLabel = NSTextField(labelWithString: "0\nReject")
+    private let openMediaButton = NSButton(title: "Open media", target: nil, action: nil)
+    private var finishButton: NSButton?
     private var decisionButtons: [String: NSButton] = [:]
     private var groupActionButtons: [String: NSButton] = [:]
     private var latestExportText = ""
@@ -541,6 +560,10 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
             noteTextView.window?.firstResponder === noteTextView.textStorage ||
             groupNoteTextView.window?.firstResponder === groupNoteTextView ||
             groupNoteTextView.window?.firstResponder === groupNoteTextView.textStorage {
+            if event.keyCode == 53 {
+                view.window?.makeFirstResponder(nil)
+                return true
+            }
             return false
         }
 
@@ -556,6 +579,24 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         }
 
         let key = event.charactersIgnoringModifiers?.lowercased()
+        if key == " " {
+            openCurrentMedia()
+            return true
+        }
+        if isPostReviewMode() {
+            if key == "a" || key == "y" || event.keyCode == 36 {
+                triggerGroupAction(kind: .approve)
+                return true
+            }
+            if key == "r" || key == "x" {
+                triggerGroupAction(kind: .reject)
+                return true
+            }
+            if key == "c" || key == "m" {
+                triggerGroupAction(kind: .changes)
+                return true
+            }
+        }
         if key == "x" {
             setDecision("reject", advance: true)
             return true
@@ -747,6 +788,33 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         sidePane.addArrangedSubview(groupRailScroll)
         groupRailScroll.heightAnchor.constraint(equalToConstant: 118).isActive = true
 
+        consequenceBanner.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        consequenceBanner.textColor = .labelColor
+        consequenceBanner.maximumNumberOfLines = 4
+        consequenceBanner.lineBreakMode = .byWordWrapping
+        consequenceBanner.wantsLayer = true
+        consequenceBanner.layer?.cornerRadius = 6
+        consequenceBanner.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.22).cgColor
+        consequenceBanner.isHidden = true
+        sidePane.addArrangedSubview(consequenceBanner)
+
+        groupActionLabel.font = NSFont.boldSystemFont(ofSize: 13)
+        groupActionLabel.maximumNumberOfLines = 2
+        sidePane.addArrangedSubview(groupActionLabel)
+
+        groupActionStack.orientation = .vertical
+        groupActionStack.alignment = .width
+        groupActionStack.spacing = 6
+        sidePane.addArrangedSubview(groupActionStack)
+
+        openMediaButton.target = self
+        openMediaButton.action = #selector(openCurrentMedia)
+        openMediaButton.bezelStyle = .rounded
+        openMediaButton.translatesAutoresizingMaskIntoConstraints = false
+        openMediaButton.heightAnchor.constraint(equalToConstant: 30).isActive = true
+        openMediaButton.isHidden = true
+        sidePane.addArrangedSubview(openMediaButton)
+
         filenameLabel.font = NSFont.boldSystemFont(ofSize: 15)
         filenameLabel.maximumNumberOfLines = 3
         pathLabel.font = NSFont.systemFont(ofSize: 12)
@@ -782,7 +850,6 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         warningLabel.isHidden = true
         sidePane.addArrangedSubview(warningLabel)
 
-        let itemActionRows = NSStackView()
         itemActionRows.orientation = .vertical
         itemActionRows.alignment = .width
         itemActionRows.spacing = 8
@@ -806,15 +873,6 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         extraItemActionStack.spacing = 6
         extraItemActionStack.distribution = .fillEqually
         sidePane.addArrangedSubview(extraItemActionStack)
-
-        let groupActionLabel = NSTextField(labelWithString: "Group review")
-        groupActionLabel.font = NSFont.boldSystemFont(ofSize: 13)
-        sidePane.addArrangedSubview(groupActionLabel)
-
-        groupActionStack.orientation = .vertical
-        groupActionStack.alignment = .width
-        groupActionStack.spacing = 6
-        sidePane.addArrangedSubview(groupActionStack)
 
         groupNoteTextView.font = NSFont.systemFont(ofSize: 13)
         groupNoteTextView.isRichText = false
@@ -862,6 +920,7 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         let finishButton = makeButton(title: "Finish and export", action: #selector(finishAndExport))
         finishButton.bezelStyle = .rounded
         finishButton.controlSize = .large
+        self.finishButton = finishButton
         sidePane.addArrangedSubview(finishButton)
     }
 
@@ -896,6 +955,14 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
     @objc private func extraItemActionPressed(_ sender: NSButton) {
         guard let status = sender.identifier?.rawValue else { return }
         setDecision(status, advance: false)
+    }
+
+    @objc private func openCurrentMedia() {
+        guard let url = currentMediaURL() else {
+            showError("No media URL found", detail: "This review group does not provide videoPath, publicMediaUrl, mediaUrl, url, oneLink, or onelink metadata.")
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 
     @objc private func focusNotes() {
@@ -933,12 +1000,31 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
             return
         }
 
+        finishValidatedReview()
+    }
+
+    private func finishValidatedReview() {
         session.finishedAt = nowISO()
         persist()
+
+        if isAutogenReview() {
+            showCompletionAlert()
+            return
+        }
+
         let export = buildExport(session: session)
         latestExportText = export
         print(export)
         showExportWindow(export)
+    }
+
+    private func showCompletionAlert() {
+        let alert = NSAlert()
+        alert.messageText = "Review saved"
+        alert.informativeText = "The session passed validation and was written to disk for aut0gen to import."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Done")
+        alert.runModal()
     }
 
     private func showValidationSummary(_ issues: [ReviewIssue]) {
@@ -947,7 +1033,9 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         alert.informativeText = issues.prefix(10).map { "• \($0.message)" }.joined(separator: "\n")
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Fix issues")
-        alert.addButton(withTitle: "Skip unresolved groups")
+        if issues.contains(where: { $0.skippable }) {
+            alert.addButton(withTitle: "Skip unresolved groups")
+        }
 
         let response = alert.runModal()
         if response == .alertFirstButtonReturn {
@@ -955,13 +1043,17 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
             return
         }
 
-        markIssueGroupsSkipped(issues)
-        session.finishedAt = nowISO()
-        persist()
-        let export = buildExport(session: session)
-        latestExportText = export
-        print(export)
-        showExportWindow(export)
+        if markIssueGroupsSkipped(issues) {
+            persist()
+        }
+
+        let remainingIssues = validationIssues()
+        if !remainingIssues.isEmpty {
+            showValidationSummary(remainingIssues)
+            return
+        }
+
+        finishValidatedReview()
     }
 
     private func confirmReadyToFinish() -> Bool {
@@ -970,7 +1062,7 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         let rows = groups.map { group -> String in
             let decision = groupDecision(for: group)
             let selected = selectedUseCount(for: group)
-            return "• \(group.label): \(actionLabel(decision.status, group: group)), \(selected) \(actionLabel("use", group: group))"
+            return "• \(group.label): \(actionLabel(decision.status, group: group)), \(selected) \(itemActionLabel("use", group: group))"
         }
 
         let alert = NSAlert()
@@ -982,20 +1074,25 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         return alert.runModal() == .alertFirstButtonReturn
     }
 
-    private func markIssueGroupsSkipped(_ issues: [ReviewIssue]) {
+    private func markIssueGroupsSkipped(_ issues: [ReviewIssue]) -> Bool {
         if session.groupDecisions == nil {
             session.groupDecisions = [:]
         }
-        let issueGroupIds = Set(issues.compactMap { $0.groupId })
+        var changed = false
+        let issueGroupIds = Set(issues.filter { $0.skippable }.compactMap { $0.groupId })
         for group in session.groups ?? [] where issueGroupIds.contains(group.id) {
             var decision = session.groupDecisions?[group.id] ?? GroupDecision(status: "unreviewed", note: "", reviewedAt: nil, itemOrder: group.itemIds)
+            guard decision.status == "unreviewed" else { continue }
             decision.status = "skipped"
             decision.reviewedAt = nowISO()
             if decision.itemOrder == nil {
                 decision.itemOrder = group.itemIds
             }
             session.groupDecisions?[group.id] = decision
+            session.finishedAt = nil
+            changed = true
         }
+        return changed
     }
 
     private func jumpToIssue(_ issue: ReviewIssue?) {
@@ -1009,6 +1106,11 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
             session.currentIndex = index
         }
         render()
+        if issue.focus == .groupNote {
+            groupNoteTextView.window?.makeFirstResponder(groupNoteTextView)
+        } else if issue.focus == .itemNote {
+            noteTextView.window?.makeFirstResponder(noteTextView)
+        }
         persist()
     }
 
@@ -1048,6 +1150,11 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         reviewType(for: group ?? currentGroup()) == "single_select_per_group"
     }
 
+    private func isPostReviewMode(group: ReviewGroup? = nil) -> Bool {
+        let type = reviewType(for: group ?? currentGroup())
+        return type == "post_review" || type == "content_set"
+    }
+
     private func intValue(_ value: JSONValue?) -> Int? {
         guard let value = value else { return nil }
         switch value {
@@ -1055,6 +1162,22 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
             return Int(number)
         case .string(let string):
             return Int(string)
+        default:
+            return nil
+        }
+    }
+
+    private func boolValue(_ value: JSONValue?) -> Bool? {
+        guard let value = value else { return nil }
+        switch value {
+        case .bool(let bool):
+            return bool
+        case .string(let string):
+            if ["true", "yes", "1"].contains(string.lowercased()) { return true }
+            if ["false", "no", "0"].contains(string.lowercased()) { return false }
+            return nil
+        case .number(let number):
+            return number != 0
         default:
             return nil
         }
@@ -1081,11 +1204,19 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         group.itemIds.allSatisfy { (session.decisions[$0]?.status ?? "unreviewed") != "unreviewed" }
     }
 
+    private func metadataContains(_ metadata: [String: JSONValue]?, keys: [String]) -> Bool {
+        guard let metadata = metadata else { return false }
+        return keys.contains { metadata[$0] != nil }
+    }
+
     private func noteRequiredStatuses(for group: ReviewGroup? = nil) -> Set<String> {
-        let values = metadataList(group?.metadata, keys: ["noteRequiredStatuses", "requireNotesForStatuses"])
-        if !values.isEmpty { return Set(values) }
-        let sessionValues = metadataList(session.metadata, keys: ["noteRequiredStatuses", "requireNotesForStatuses"])
-        if !sessionValues.isEmpty { return Set(sessionValues) }
+        let keys = ["noteRequiredStatuses", "requireNotesForStatuses"]
+        if metadataContains(group?.metadata, keys: keys) {
+            return Set(metadataList(group?.metadata, keys: keys))
+        }
+        if metadataContains(session.metadata, keys: keys) {
+            return Set(metadataList(session.metadata, keys: keys))
+        }
         return Set(["maybe", "replace", "request_changes", "needs_reorder"])
     }
 
@@ -1096,6 +1227,49 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
     private func item(for itemId: String) -> ImageItem? {
         guard let index = sessionIndex(for: itemId) else { return nil }
         return session.items[index]
+    }
+
+    private func isAutogenReview() -> Bool {
+        session.kind == "autogen_review"
+    }
+
+    private func currentMediaURL() -> URL? {
+        guard let group = currentGroup() else { return nil }
+        let value = metadataString(group.metadata, keys: ["videoPath", "publicMediaUrl", "mediaUrl", "mediaURL", "url", "oneLink", "onelink"])
+        guard let raw = value?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return nil }
+        if raw.lowercased().hasPrefix("http://") || raw.lowercased().hasPrefix("https://") {
+            return URL(string: raw)
+        }
+        return URL(fileURLWithPath: NSString(string: raw).expandingTildeInPath)
+    }
+
+    private func groupAction(for kind: GroupActionKind, group: ReviewGroup?) -> String? {
+        let actions = session.groupActions ?? []
+        guard !actions.isEmpty else { return nil }
+
+        let preferred: [String]
+        switch kind {
+        case .approve:
+            preferred = ["approve_sequence", "approve", "use"]
+        case .reject:
+            preferred = ["reject"]
+        case .changes:
+            preferred = ["request_changes", "needs_reorder", "replace", "maybe"]
+        }
+
+        for action in preferred where actions.contains(action) {
+            return action
+        }
+
+        return nil
+    }
+
+    private func triggerGroupAction(kind: GroupActionKind) {
+        guard let status = groupAction(for: kind, group: currentGroup()) else {
+            NSSound.beep()
+            return
+        }
+        setGroupDecision(status)
     }
 
     private func orderedItemIds(for group: ReviewGroup) -> [String] {
@@ -1125,6 +1299,8 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
 
     func canMoveStoryboardItem(_ sourceId: String, relativeTo targetId: String?) -> Bool {
         guard let group = currentGroup(), group.itemIds.contains(sourceId) else { return false }
+        if group.itemIds.count < 2 { return false }
+        if boolValue(group.constraints?["requiresOrder"]) == false { return false }
         if let targetId = targetId {
             return group.itemIds.contains(targetId) && sourceId != targetId
         }
@@ -1250,8 +1426,9 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         pathLabel.stringValue = item.path
         noteTextView.string = decision.note
         metadataTextView.string = metadataSummary(item: item, group: currentGroup())
-        metadataTextView.scrollToBeginningOfDocument(nil)
         groupNoteTextView.string = currentGroupDecision()?.note ?? ""
+        updateConsequenceBanner(group: currentGroup())
+        updateModeControls(group: currentGroup())
         updateWarningLabel(item: item, group: currentGroup())
         useCountLabel.stringValue = "\(counts.use)\nUse"
         maybeCountLabel.stringValue = "\(counts.maybe)\nMaybe"
@@ -1274,24 +1451,78 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         renderThumbnails()
     }
 
-    private func actionLabel(_ action: String, group: ReviewGroup? = nil) -> String {
-        if let labels = jsonObject(group?.metadata?["actionLabels"]),
-           let label = labels[action] {
-            let display = jsonDisplay(label).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !display.isEmpty { return display }
+    private func updateConsequenceBanner(group: ReviewGroup?) {
+        guard let group = group else {
+            consequenceBanner.isHidden = true
+            consequenceBanner.stringValue = ""
+            return
         }
 
-        if let labels = jsonObject(session.metadata?["actionLabels"]),
-           let label = labels[action] {
-            let display = jsonDisplay(label).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !display.isEmpty { return display }
+        var parts: [String] = []
+        if let consequence = metadataString(group.metadata, keys: ["consequence"]) {
+            parts.append(consequence)
+        }
+
+        let facts = [
+            metadataString(group.metadata, keys: ["accountHandles", "accountHandle"]).map { "Account: \($0)" },
+            metadataString(group.metadata, keys: ["scheduledLocal", "scheduled_at_local", "scheduledAtLocal"]).map { "Slot: \($0)" },
+            metadataString(group.metadata, keys: ["creditCostEstimate"]).map { "Cost: \($0)" },
+            metadataString(group.metadata, keys: ["creditsRemaining"]).map { "Remaining: \($0)" },
+        ].compactMap { $0 }
+
+        if !facts.isEmpty {
+            parts.append(facts.joined(separator: " · "))
+        }
+
+        consequenceBanner.stringValue = parts.joined(separator: "\n")
+        consequenceBanner.isHidden = parts.isEmpty
+    }
+
+    private func updateModeControls(group: ReviewGroup?) {
+        let postReview = isPostReviewMode(group: group)
+        itemActionRows.isHidden = postReview
+        extraItemActionStack.isHidden = postReview || extraItemActionStack.isHidden
+        openMediaButton.isHidden = currentMediaURL() == nil
+        finishButton?.title = isAutogenReview() ? "Finish review" : "Finish and export"
+        groupActionLabel.stringValue = postReview ? "Group review: A approve · R reject · C changes" : "Group review"
+    }
+
+    private func actionLabel(_ action: String, group: ReviewGroup? = nil, scope: String? = "group") -> String {
+        let labelKeys: [String]
+        switch scope {
+        case "item":
+            labelKeys = ["itemActionLabels"]
+        case "group":
+            labelKeys = ["groupActionLabels", "actionLabels"]
+        default:
+            labelKeys = ["actionLabels"]
+        }
+
+        for key in labelKeys {
+            if let labels = jsonObject(group?.metadata?[key]),
+               let label = labels[action] {
+                let display = jsonDisplay(label).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !display.isEmpty { return display }
+            }
+        }
+
+        for key in labelKeys {
+            if let labels = jsonObject(session.metadata?[key]),
+               let label = labels[action] {
+                let display = jsonDisplay(label).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !display.isEmpty { return display }
+            }
         }
 
         return statusLabel(action)
     }
 
+    private func itemActionLabel(_ action: String, group: ReviewGroup? = nil) -> String {
+        actionLabel(action, group: group, scope: "item")
+    }
+
     private func itemActionTitle(_ action: String, group: ReviewGroup? = nil) -> String {
-        let label = actionLabel(action, group: group)
+        let label = itemActionLabel(action, group: group)
         switch action {
         case "reject":
             return "X  \(label)"
@@ -1302,6 +1533,20 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         default:
             return label
         }
+    }
+
+    private func groupActionTitle(_ action: String, group: ReviewGroup? = nil) -> String {
+        let label = actionLabel(action, group: group)
+        if groupAction(for: .approve, group: group) == action {
+            return "A  \(label)"
+        }
+        if groupAction(for: .reject, group: group) == action {
+            return "R  \(label)"
+        }
+        if groupAction(for: .changes, group: group) == action {
+            return "C  \(label)"
+        }
+        return label
     }
 
     private func updateActionButtonLabels() {
@@ -1456,10 +1701,10 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
 
         if let constraints = group.constraints {
             if let minCount = intValue(constraints["minSelected"]), selected < minCount {
-                warnings.append("\(actionLabel("use", group: group)) \(selected)/\(minCount)")
+                warnings.append("\(itemActionLabel("use", group: group)) \(selected)/\(minCount)")
             }
             if let maxCount = intValue(constraints["maxSelected"] ?? constraints["maxImages"] ?? constraints["accountMaxImages"]), selected > maxCount {
-                warnings.append("\(actionLabel("use", group: group)) \(selected)/\(maxCount)")
+                warnings.append("\(itemActionLabel("use", group: group)) \(selected)/\(maxCount)")
             }
             if groupDecision(for: group).status == "unreviewed", isGroupFullyReviewed(group) {
                 warnings.append("Group reviewed but not confirmed")
@@ -1478,7 +1723,7 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         for item in items(for: group) {
             let decision = session.decisions[item.id] ?? Decision(status: "unreviewed", note: "", reviewedAt: nil)
             if requiredStatuses.contains(decision.status) && decision.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                warnings.append("\(item.label): note required for \(actionLabel(decision.status, group: group))")
+                warnings.append("\(item.label): note required for \(itemActionLabel(decision.status, group: group))")
             }
         }
 
@@ -1497,7 +1742,6 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
     private func validationIssues(includeSkipped: Bool = false) -> [ReviewIssue] {
         var issues: [ReviewIssue] = []
         let groups = session.groups ?? []
-        let requiredStatusesBySession = noteRequiredStatuses()
 
         for group in groups {
             let groupDecision = groupDecision(for: group)
@@ -1508,26 +1752,26 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
             let selected = selectedUseCount(for: group)
             if let constraints = group.constraints {
                 if let minCount = intValue(constraints["minSelected"]), selected < minCount {
-                    issues.append(ReviewIssue(groupId: group.id, itemId: nil, message: "\(group.label): \(actionLabel("use", group: group)) \(selected)/\(minCount)", blocking: true))
+                    issues.append(ReviewIssue(groupId: group.id, itemId: nil, message: "\(group.label): \(itemActionLabel("use", group: group)) \(selected)/\(minCount)", blocking: true, skippable: groupDecision.status == "unreviewed", focus: .group))
                 }
                 if let maxCount = intValue(constraints["maxSelected"] ?? constraints["maxImages"] ?? constraints["accountMaxImages"]), selected > maxCount {
-                    issues.append(ReviewIssue(groupId: group.id, itemId: nil, message: "\(group.label): \(actionLabel("use", group: group)) \(selected)/\(maxCount)", blocking: true))
+                    issues.append(ReviewIssue(groupId: group.id, itemId: nil, message: "\(group.label): \(itemActionLabel("use", group: group)) \(selected)/\(maxCount)", blocking: true, skippable: groupDecision.status == "unreviewed", focus: .group))
                 }
             }
 
             if groupDecision.status == "unreviewed" {
-                issues.append(ReviewIssue(groupId: group.id, itemId: nil, message: "\(group.label): group decision is still unreviewed", blocking: true))
+                issues.append(ReviewIssue(groupId: group.id, itemId: nil, message: "\(group.label): group decision is still unreviewed", blocking: true, skippable: true, focus: .group))
             }
 
-            let requiredStatuses = noteRequiredStatuses(for: group).union(requiredStatusesBySession)
+            let requiredStatuses = noteRequiredStatuses(for: group)
             for item in items(for: group) {
                 let decision = session.decisions[item.id] ?? Decision(status: "unreviewed", note: "", reviewedAt: nil)
                 if requiredStatuses.contains(decision.status) && decision.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    issues.append(ReviewIssue(groupId: group.id, itemId: item.id, message: "\(group.label) / \(item.label): note required for \(actionLabel(decision.status, group: group))", blocking: true))
+                    issues.append(ReviewIssue(groupId: group.id, itemId: item.id, message: "\(group.label) / \(item.label): note required for \(itemActionLabel(decision.status, group: group))", blocking: true, skippable: false, focus: .itemNote))
                 }
             }
             if requiredStatuses.contains(groupDecision.status) && groupDecision.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                issues.append(ReviewIssue(groupId: group.id, itemId: nil, message: "\(group.label): group note required for \(actionLabel(groupDecision.status, group: group))", blocking: true))
+                issues.append(ReviewIssue(groupId: group.id, itemId: nil, message: "\(group.label): group note required for \(actionLabel(groupDecision.status, group: group))", blocking: true, skippable: false, focus: .groupNote))
             }
         }
 
@@ -1697,7 +1941,7 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
             "platform", "accountGroup", "account_group", "oneLink", "onelink", "personaId", "contentSetId", "briefId", "externalId",
             "personaContext", "consequence", "accountHandles", "accountHandle", "scheduledLocal", "scheduled_at_local", "scheduledAtLocal",
             "creditCostEstimate", "creditsRemaining", "publicMediaUrl", "mediaUrl", "mediaURL", "url", "videoPath", "videoDurationSec",
-            "actionLabels", "noteRequiredStatuses", "requireNotesForStatuses"
+            "actionLabels", "itemActionLabels", "groupActionLabels", "noteRequiredStatuses", "requireNotesForStatuses"
         ])
         let additionalGroup = groupMetadata
             .filter { !knownGroupKeys.contains($0.key) }
@@ -1721,7 +1965,7 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
     private func groupRailStatus(for group: ReviewGroup) -> (badge: String, detail: String) {
         let decision = groupDecision(for: group)
         let selected = selectedUseCount(for: group)
-        let selectedText = "\(selected) \(actionLabel("use", group: group))"
+        let selectedText = "\(selected) \(itemActionLabel("use", group: group))"
 
         if decision.status == "skipped" {
             return ("[Skip]", "Skipped, \(selectedText)")
@@ -1816,11 +2060,12 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
             button.action = #selector(thumbnailPressed(_:))
             let role = metadataString(item.metadata, keys: ["role"]) ?? item.label
             button.title = ""
-            button.toolTip = "\(sequenceIndex + 1). \(role) · #\(item.index) \(item.filename) · \(statusLabel(session.decisions[item.id]?.status ?? "unreviewed"))"
+            let status = session.decisions[item.id]?.status ?? "unreviewed"
+            button.toolTip = "\(sequenceIndex + 1). \(role) · #\(item.index) \(item.filename) · \(statusLabel(status))"
             button.bezelStyle = item.id == currentItem()?.id ? .regularSquare : .shadowlessSquare
             button.imagePosition = .imageOnly
             button.imageScaling = .scaleProportionallyUpOrDown
-            button.image = storyboardThumbnailImage(path: item.path, number: sequenceIndex + 1)
+            button.image = storyboardThumbnailImage(path: item.path, number: sequenceIndex + 1, status: status)
             button.translatesAutoresizingMaskIntoConstraints = false
             button.widthAnchor.constraint(equalToConstant: 92).isActive = true
             button.heightAnchor.constraint(equalToConstant: 88).isActive = true
@@ -1864,8 +2109,9 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
             return
         }
 
+        let group = currentGroup()
         for action in actions {
-            let button = NSButton(title: actionLabel(action, group: currentGroup()), target: self, action: #selector(groupActionPressed(_:)))
+            let button = NSButton(title: groupActionTitle(action, group: group), target: self, action: #selector(groupActionPressed(_:)))
             button.identifier = NSUserInterfaceItemIdentifier(action)
             button.bezelStyle = action == currentStatus ? .regularSquare : .rounded
             button.translatesAutoresizingMaskIntoConstraints = false
@@ -1879,6 +2125,11 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         for view in extraItemActionStack.arrangedSubviews {
             extraItemActionStack.removeArrangedSubview(view)
             view.removeFromSuperview()
+        }
+
+        if isPostReviewMode() {
+            extraItemActionStack.isHidden = true
+            return
         }
 
         let defaultActions = Set(["use", "maybe", "reject"])
@@ -1922,8 +2173,9 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
             button.bezelStyle = index == session.currentIndex ? .regularSquare : .shadowlessSquare
             button.imagePosition = .imageOnly
             button.imageScaling = .scaleProportionallyUpOrDown
-            button.toolTip = "#\(item.index) \(item.filename)"
-            button.image = NSImage(contentsOfFile: item.path) ?? placeholderImage(text: "\(item.index)")
+            let status = session.decisions[item.id]?.status ?? "unreviewed"
+            button.toolTip = "#\(item.index) \(item.filename) · \(statusLabel(status))"
+            button.image = storyboardThumbnailImage(path: item.path, number: item.index, status: status)
             button.translatesAutoresizingMaskIntoConstraints = false
             button.widthAnchor.constraint(equalToConstant: 88).isActive = true
             button.heightAnchor.constraint(equalToConstant: 72).isActive = true
@@ -2012,6 +2264,55 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate {
         alert.alertStyle = .warning
         alert.runModal()
     }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard isAutogenReview() else { return true }
+        if session.finishedAt != nil { return true }
+
+        saveCurrentNote()
+        saveCurrentGroupNote()
+        let issues = validationIssues()
+        if !issues.isEmpty {
+            showValidationSummary(issues)
+            return false
+        }
+
+        guard confirmCloseAndCommit() else {
+            return false
+        }
+
+        session.finishedAt = nowISO()
+        persist()
+        return true
+    }
+
+    private func confirmCloseAndCommit() -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Close and finish aut0gen review?"
+        alert.informativeText = closeSummaryText()
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Close and finish")
+        alert.addButton(withTitle: "Keep reviewing")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func closeSummaryText() -> String {
+        guard let groups = session.groups, !groups.isEmpty else {
+            return "The session has no review groups."
+        }
+
+        let rows = groups.map { group -> String in
+            let decision = groupDecision(for: group)
+            let status = actionLabel(decision.status, group: group)
+            let consequence = metadataString(group.metadata, keys: ["consequence"])
+            if let consequence = consequence, !consequence.isEmpty {
+                return "• \(group.label): \(status) — \(consequence)"
+            }
+            return "• \(group.label): \(status)"
+        }
+
+        return rows.joined(separator: "\n")
+    }
 }
 
 func placeholderImage(text: String) -> NSImage {
@@ -2033,7 +2334,24 @@ func placeholderImage(text: String) -> NSImage {
     return image
 }
 
-func storyboardThumbnailImage(path: String, number: Int) -> NSImage {
+func decisionBadgeText(_ status: String) -> String {
+    switch status {
+    case "use":
+        return "Use"
+    case "maybe":
+        return "Keep"
+    case "reject":
+        return "Drop"
+    case "replace":
+        return "Swap"
+    case "unreviewed":
+        return "Open"
+    default:
+        return statusLabel(status)
+    }
+}
+
+func storyboardThumbnailImage(path: String, number: Int, status: String) -> NSImage {
     let size = NSSize(width: 184, height: 176)
     let output = NSImage(size: size)
     output.lockFocus()
@@ -2074,23 +2392,53 @@ func storyboardThumbnailImage(path: String, number: Int) -> NSImage {
     ]
     "\(number)".draw(in: NSRect(x: badgeRect.minX, y: badgeRect.minY + 4, width: badgeRect.width, height: 16), withAttributes: badgeAttributes)
 
+    let statusText = decisionBadgeText(status)
+    let statusRect = NSRect(x: size.width - 72, y: size.height - 34, width: 62, height: 24)
+    NSColor.windowBackgroundColor.withAlphaComponent(0.92).setFill()
+    NSBezierPath(roundedRect: statusRect, xRadius: 8, yRadius: 8).fill()
+    let statusAttributes: [NSAttributedString.Key: Any] = [
+        .foregroundColor: status == "unreviewed" ? NSColor.secondaryLabelColor : NSColor.controlAccentColor,
+        .font: NSFont.boldSystemFont(ofSize: 11),
+        .paragraphStyle: paragraph
+    ]
+    statusText.draw(in: NSRect(x: statusRect.minX + 2, y: statusRect.minY + 5, width: statusRect.width - 4, height: 14), withAttributes: statusAttributes)
+
     output.unlockFocus()
     return output
 }
 
 func reviewWindowContentRect() -> NSRect {
-    let visibleFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1280, height: 800)
+    let visibleFrame = screenUnderMouse().visibleFrame
     let width = min(1080, max(720, visibleFrame.width * 0.86))
     let height = min(720, max(560, visibleFrame.height * 0.84))
     return NSRect(x: 0, y: 0, width: width, height: height)
 }
 
 func reviewWindowMinimumSize() -> NSSize {
-    let visibleFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1280, height: 800)
+    let visibleFrame = screenUnderMouse().visibleFrame
     return NSSize(
         width: min(900, max(680, visibleFrame.width * 0.72)),
         height: min(620, max(520, visibleFrame.height * 0.72))
     )
+}
+
+func screenUnderMouse() -> NSScreen {
+    let mouse = NSEvent.mouseLocation
+    return NSScreen.screens.first { screen in
+        screen.frame.contains(mouse)
+    } ?? NSScreen.main ?? NSScreen.screens.first!
+}
+
+func positionReviewWindow(_ window: NSWindow) {
+    let visible = screenUnderMouse().visibleFrame
+    var frame = window.frame
+    frame.size.width = min(frame.width, visible.width)
+    frame.size.height = min(frame.height, visible.height)
+    frame.origin.x = visible.midX - frame.width / 2
+    frame.origin.y = visible.midY - frame.height / 2
+    frame.origin.x = min(max(frame.origin.x, visible.minX), max(visible.minX, visible.maxX - frame.width))
+    frame.origin.y = min(max(frame.origin.y, visible.minY), max(visible.minY, visible.maxY - frame.height))
+    window.setFrame(frame, display: true)
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -2116,7 +2464,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.minSize = reviewWindowMinimumSize()
             window.contentViewController = controller
             window.reviewController = controller
-            window.center()
+            window.delegate = controller
+            positionReviewWindow(window)
             window.makeKeyAndOrderFront(nil)
             self.window = window
             NSApp.activate(ignoringOtherApps: true)
