@@ -1,4 +1,5 @@
 import AppKit
+import AVKit
 import Foundation
 
 enum JSONValue: Codable {
@@ -548,13 +549,18 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
     private let titleLabel = NSTextField(labelWithString: "")
     private let metaLabel = NSTextField(labelWithString: "")
     private let progressLabel = NSTextField(labelWithString: "")
+    private let contentTypeStack = NSStackView()
+    private let contentTypeLabel = PaddedLabel(labelWithString: "")
+    private let contentTypeDetailLabel = NSTextField(labelWithString: "")
     private let imageView = NSImageView()
+    private let videoPlayerView = AVPlayerView()
     private let imageFrame = NSView()
     private let storyboardHeader = NSStackView()
     private let storyboardTitleLabel = NSTextField(labelWithString: "Storyboard sequence")
     private let storyboardStatusLabel = NSTextField(labelWithString: "")
     private let storyboardScroll = NSScrollView()
     private let storyboardStack: NSStackView = FlippedStackView()
+    private let thumbScroll = NSScrollView()
     private let thumbnailStack = NSStackView()
     private let positionLabel = NSTextField(labelWithString: "")
     private let statusLabelView = PaddedLabel(labelWithString: "")
@@ -564,6 +570,9 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
     private let groupActionLabel = NSTextField(labelWithString: "Group review")
     private let filenameLabel = NSTextField(labelWithString: "")
     private let pathLabel = NSTextField(labelWithString: "")
+    private let fileBlock = NSStackView()
+    private let metadataHeaderLabel = NSTextField(labelWithString: "What gets posted")
+    private let detailsToggleButton = NSButton(title: "More details", target: nil, action: nil)
     private let metadataScroll = NSScrollView()
     private let metadataTextView = NSTextView()
     private let warningLabel = PaddedLabel(labelWithString: "")
@@ -585,6 +594,11 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
     private var groupActionButtons: [String: NSButton] = [:]
     private var latestExportText = ""
     private var isRendering = false
+    private var showMoreDetails = false
+    private var videoQueuePlayer: AVQueuePlayer?
+    private var videoLooper: AVPlayerLooper?
+    private var currentVideoPath: String?
+    private var videoVisible = false
 
     init(session: ReviewSession, sessionPath: String) {
         self.session = session
@@ -635,6 +649,10 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
 
         let key = event.charactersIgnoringModifiers?.lowercased()
         if key == " " {
+            toggleVideoPlayback()
+            return true
+        }
+        if key == "o" {
             openCurrentMedia()
             return true
         }
@@ -761,6 +779,24 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
         progressLabel.textColor = .secondaryLabelColor
         progressLabel.alignment = .right
 
+        contentTypeStack.orientation = .vertical
+        contentTypeStack.alignment = .leading
+        contentTypeStack.spacing = 4
+        contentTypeLabel.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
+        contentTypeLabel.textColor = .controlAccentColor
+        contentTypeLabel.maximumNumberOfLines = 2
+        contentTypeLabel.lineBreakMode = .byWordWrapping
+        contentTypeLabel.wantsLayer = true
+        contentTypeLabel.layer?.cornerRadius = 8
+        contentTypeLabel.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.12).cgColor
+        contentTypeStack.addArrangedSubview(contentTypeLabel)
+        contentTypeDetailLabel.font = NSFont.systemFont(ofSize: 11, weight: .regular)
+        contentTypeDetailLabel.textColor = .secondaryLabelColor
+        contentTypeDetailLabel.maximumNumberOfLines = 2
+        contentTypeDetailLabel.lineBreakMode = .byWordWrapping
+        contentTypeStack.addArrangedSubview(contentTypeDetailLabel)
+        reviewPane.addArrangedSubview(contentTypeStack)
+
         top.addArrangedSubview(titleBlock)
         top.addArrangedSubview(progressLabel)
         reviewPane.addArrangedSubview(top)
@@ -776,6 +812,10 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
         imageView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         imageView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         imageFrame.addSubview(imageView)
+        videoPlayerView.controlsStyle = .minimal
+        videoPlayerView.isHidden = true
+        videoPlayerView.translatesAutoresizingMaskIntoConstraints = false
+        imageFrame.addSubview(videoPlayerView)
         reviewPane.addArrangedSubview(imageFrame)
 
         NSLayoutConstraint.activate([
@@ -783,8 +823,22 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
             imageView.trailingAnchor.constraint(equalTo: imageFrame.trailingAnchor),
             imageView.topAnchor.constraint(equalTo: imageFrame.topAnchor),
             imageView.bottomAnchor.constraint(equalTo: imageFrame.bottomAnchor),
+            videoPlayerView.leadingAnchor.constraint(equalTo: imageFrame.leadingAnchor),
+            videoPlayerView.trailingAnchor.constraint(equalTo: imageFrame.trailingAnchor),
+            videoPlayerView.topAnchor.constraint(equalTo: imageFrame.topAnchor),
+            videoPlayerView.bottomAnchor.constraint(equalTo: imageFrame.bottomAnchor),
             imageFrame.heightAnchor.constraint(greaterThanOrEqualToConstant: 280)
         ])
+
+        openMediaButton.target = self
+        openMediaButton.action = #selector(primaryMediaButtonPressed)
+        openMediaButton.bezelStyle = .rounded
+        openMediaButton.controlSize = .large
+        openMediaButton.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
+        openMediaButton.translatesAutoresizingMaskIntoConstraints = false
+        openMediaButton.heightAnchor.constraint(equalToConstant: 38).isActive = true
+        openMediaButton.isHidden = true
+        reviewPane.addArrangedSubview(openMediaButton)
 
         storyboardHeader.orientation = .horizontal
         storyboardHeader.alignment = .centerY
@@ -811,7 +865,6 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
         reviewPane.addArrangedSubview(storyboardScroll)
         storyboardScroll.heightAnchor.constraint(equalToConstant: 112).isActive = true
 
-        let thumbScroll = NSScrollView()
         thumbScroll.hasHorizontalScroller = true
         thumbScroll.hasVerticalScroller = false
         thumbScroll.borderType = .noBorder
@@ -866,29 +919,33 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
         groupActionStack.spacing = 6
         sidePane.addArrangedSubview(groupActionStack)
 
-        openMediaButton.target = self
-        openMediaButton.action = #selector(openCurrentMedia)
-        openMediaButton.bezelStyle = .rounded
-        openMediaButton.translatesAutoresizingMaskIntoConstraints = false
-        openMediaButton.heightAnchor.constraint(equalToConstant: 30).isActive = true
-        openMediaButton.isHidden = true
-        sidePane.addArrangedSubview(openMediaButton)
-
         filenameLabel.font = NSFont.boldSystemFont(ofSize: 15)
         filenameLabel.maximumNumberOfLines = 3
         pathLabel.font = NSFont.systemFont(ofSize: 12)
         pathLabel.textColor = .secondaryLabelColor
         pathLabel.maximumNumberOfLines = 5
-        let fileBlock = NSStackView()
         fileBlock.orientation = .vertical
         fileBlock.spacing = 5
         fileBlock.addArrangedSubview(filenameLabel)
         fileBlock.addArrangedSubview(pathLabel)
+        fileBlock.isHidden = true
         sidePane.addArrangedSubview(fileBlock)
 
-        let metadataLabel = NSTextField(labelWithString: "Review brief")
-        metadataLabel.font = NSFont.boldSystemFont(ofSize: 13)
-        sidePane.addArrangedSubview(metadataLabel)
+        let metadataHeaderRow = NSStackView()
+        metadataHeaderRow.orientation = .horizontal
+        metadataHeaderRow.alignment = .centerY
+        metadataHeaderRow.distribution = .fill
+        metadataHeaderRow.spacing = 10
+        metadataHeaderLabel.font = NSFont.boldSystemFont(ofSize: 13)
+        metadataHeaderRow.addArrangedSubview(metadataHeaderLabel)
+        let headerSpacer = NSView()
+        metadataHeaderRow.addArrangedSubview(headerSpacer)
+        detailsToggleButton.target = self
+        detailsToggleButton.action = #selector(toggleDetails)
+        detailsToggleButton.bezelStyle = .inline
+        detailsToggleButton.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        metadataHeaderRow.addArrangedSubview(detailsToggleButton)
+        sidePane.addArrangedSubview(metadataHeaderRow)
 
         metadataTextView.font = NSFont.systemFont(ofSize: 12)
         metadataTextView.isEditable = false
@@ -1027,6 +1084,19 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
             return
         }
         NSWorkspace.shared.open(url)
+    }
+
+    @objc private func primaryMediaButtonPressed() {
+        if videoVisible {
+            toggleVideoPlayback()
+            return
+        }
+        openCurrentMedia()
+    }
+
+    @objc private func toggleDetails() {
+        showMoreDetails.toggle()
+        render()
     }
 
     @objc private func focusNotes() {
@@ -1251,13 +1321,40 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
         group.itemIds.filter { (session.decisions[$0]?.status ?? "unreviewed") == "use" }.count
     }
 
-    private func groupProgressText() -> String? {
-        guard let groups = session.groups, !groups.isEmpty else { return nil }
+    private func progressText(counts: ProgressCounts) -> String {
+        guard let groups = session.groups, !groups.isEmpty else {
+            return "\(counts.reviewed) / \(counts.total) reviewed"
+        }
+
         let done = groups.filter { group in
             let status = groupDecision(for: group).status
             return status != "unreviewed"
         }.count
-        return "\(done) / \(groups.count) groups decided"
+        let unit: String
+        let resultWord: String
+        if groups.contains(where: { isPostReviewMode(group: $0) }) {
+            unit = "posts"
+            resultWord = "decided"
+        } else if groups.contains(where: { isCanonicalMode(group: $0) }) {
+            unit = "personas"
+            resultWord = "done"
+        } else {
+            unit = "groups"
+            resultWord = "decided"
+        }
+        return "\(done) of \(groups.count) \(unit) \(resultWord)"
+    }
+
+    private func statusChipPayload(itemDecision: Decision, group: ReviewGroup?) -> (status: String, label: String) {
+        guard let group = group, isPostReviewMode(group: group) else {
+            return (itemDecision.status, statusLabel(itemDecision.status))
+        }
+
+        let decision = groupDecision(for: group)
+        if decision.status == "unreviewed" {
+            return (decision.status, "Awaiting your decision")
+        }
+        return (decision.status, actionLabel(decision.status, group: group))
     }
 
     private func items(for group: ReviewGroup) -> [ImageItem] {
@@ -1305,6 +1402,86 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
             return URL(string: raw)
         }
         return URL(fileURLWithPath: NSString(string: raw).expandingTildeInPath)
+    }
+
+    private func expandedLocalPath(_ raw: String?) -> String? {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return nil }
+        return NSString(string: raw).expandingTildeInPath
+    }
+
+    private func localVideoPath(for group: ReviewGroup?) -> String? {
+        guard let path = expandedLocalPath(metadataString(group?.metadata, keys: ["videoPath"])) else { return nil }
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        return path
+    }
+
+    private func metadataLooksVideo(_ metadata: [String: JSONValue]?) -> Bool {
+        let values = [
+            metadataString(metadata, keys: ["mediaType", "contentType", "assetType", "postType"]),
+            metadataString(metadata, keys: ["contentTypeLabel"])
+        ].compactMap { $0?.lowercased() }
+        return values.contains { $0.contains("video") || $0.contains("tiktok") || $0.contains("reel") }
+    }
+
+    private func isVideoGroup(_ group: ReviewGroup?) -> Bool {
+        guard let group = group else { return false }
+        return localVideoPath(for: group) != nil || metadataLooksVideo(group.metadata)
+    }
+
+    private func pauseVideo() {
+        videoQueuePlayer?.pause()
+    }
+
+    private func toggleVideoPlayback() {
+        guard videoVisible, let player = videoQueuePlayer else {
+            openCurrentMedia()
+            return
+        }
+
+        if player.timeControlStatus == .playing {
+            player.pause()
+        } else {
+            player.play()
+        }
+    }
+
+    private func updateMediaView(item: ImageItem, group: ReviewGroup?) {
+        if let videoPath = localVideoPath(for: group) {
+            showInlineVideo(path: videoPath)
+            return
+        }
+
+        pauseVideo()
+        videoVisible = false
+        videoPlayerView.isHidden = true
+        imageView.isHidden = false
+        imageView.image = NSImage(contentsOfFile: item.path)
+        if imageView.image == nil {
+            imageView.image = placeholderImage(text: "Preview unavailable\n\(item.filename)")
+        }
+    }
+
+    private func showInlineVideo(path: String) {
+        let wasVisible = videoVisible
+        imageView.isHidden = true
+        videoPlayerView.isHidden = false
+        videoVisible = true
+
+        if currentVideoPath == path, videoPlayerView.player != nil {
+            if !wasVisible {
+                videoQueuePlayer?.play()
+            }
+            return
+        }
+
+        let item = AVPlayerItem(url: URL(fileURLWithPath: path))
+        let player = AVQueuePlayer()
+        player.isMuted = true
+        videoLooper = AVPlayerLooper(player: player, templateItem: item)
+        videoQueuePlayer = player
+        videoPlayerView.player = player
+        currentVideoPath = path
+        player.play()
     }
 
     private func groupAction(for kind: GroupActionKind, group: ReviewGroup?) -> String? {
@@ -1478,29 +1655,29 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
             return
         }
 
+        let group = currentGroup()
         let decision = currentDecision()
         let counts = progress(for: session)
         titleLabel.stringValue = session.title
         metaLabel.stringValue = "\(item.label) / \(item.filename)"
-        let itemProgress = "\(counts.reviewed) / \(counts.total) reviewed"
-        progressLabel.stringValue = [itemProgress, groupProgressText()].compactMap { $0 }.joined(separator: " · ")
+        progressLabel.stringValue = progressText(counts: counts)
         positionLabel.stringValue = "\(item.index) of \(session.items.count)"
-        statusLabelView.stringValue = statusLabel(decision.status)
-        updateStatusChip(status: decision.status)
+        let statusPayload = statusChipPayload(itemDecision: decision, group: group)
+        statusLabelView.stringValue = statusPayload.label
+        updateStatusChip(status: statusPayload.status)
         filenameLabel.stringValue = item.filename
         pathLabel.stringValue = item.path
+        metadataHeaderLabel.stringValue = "What gets posted"
+        detailsToggleButton.title = showMoreDetails ? "Less details ▴" : "More details ▾"
         noteTextView.string = decision.note
-        metadataTextView.string = metadataSummary(item: item, group: currentGroup())
+        metadataTextView.string = metadataSummary(item: item, group: group)
         groupNoteTextView.string = currentGroupDecision()?.note ?? ""
-        updateConsequenceBanner(group: currentGroup())
-        updateModeControls(group: currentGroup())
-        updateWarningLabel(item: item, group: currentGroup())
-        updateStatsLabels(counts: counts, group: currentGroup())
-
-        imageView.image = NSImage(contentsOfFile: item.path)
-        if imageView.image == nil {
-            imageView.image = placeholderImage(text: "Preview unavailable\n\(item.filename)")
-        }
+        updateContentType(item: item, group: group)
+        updateConsequenceBanner(group: group)
+        updateModeControls(group: group)
+        updateWarningLabel(item: item, group: group)
+        updateStatsLabels(counts: counts, group: group)
+        updateMediaView(item: item, group: group)
 
         for (status, button) in decisionButtons {
             button.state = decision.status == status ? .on : .off
@@ -1512,6 +1689,51 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
         renderGroupActions()
         renderExtraItemActions()
         renderThumbnails()
+    }
+
+    private func updateContentType(item: ImageItem, group: ReviewGroup?) {
+        let explicit = metadataString(group?.metadata, keys: ["contentTypeLabel"])
+        let label = explicit ?? fallbackContentTypeLabel(item: item, group: group)
+        contentTypeLabel.stringValue = label
+
+        if isVideoGroup(group) {
+            contentTypeDetailLabel.stringValue = "The strip below shows PREVIEW FRAMES of this one video — it is not a slideshow."
+            contentTypeDetailLabel.isHidden = false
+        } else {
+            contentTypeDetailLabel.stringValue = ""
+            contentTypeDetailLabel.isHidden = true
+        }
+    }
+
+    private func fallbackContentTypeLabel(item: ImageItem, group: ReviewGroup?) -> String {
+        if let mediaType = metadataString(group?.metadata, keys: ["mediaType", "contentType", "assetType", "postType"]) {
+            return mediaType.uppercased()
+        }
+
+        let type = reviewType(for: group)
+        if isVideoGroup(group) || ["mp4", "mov", "m4v"].contains(item.extension.lowercased()) {
+            if isPostReviewMode(group: group) {
+                return "ONE VIDEO POST"
+            }
+            return "VIDEO REVIEW"
+        }
+
+        if type == "single_select_per_group" {
+            if metadataString(group?.metadata, keys: ["personaId"]) != nil || group?.metadata?["personaContext"] != nil {
+                return "PERSONA PHOTO REVIEW"
+            }
+            return "PICK ONE IMAGE"
+        }
+
+        if type == "storyboard" || type == "slideshow_content_set" {
+            return "ORDERED IMAGE SEQUENCE"
+        }
+
+        if isPostReviewMode(group: group) {
+            return "POST REVIEW"
+        }
+
+        return "IMAGE REVIEW"
     }
 
     private func updateConsequenceBanner(group: ReviewGroup?) {
@@ -1576,16 +1798,19 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
 
     private func mediaButtonTitle(group: ReviewGroup?) -> String {
         guard let group = group else { return "Open media" }
-        if metadataString(group.metadata, keys: ["videoPath"]) != nil {
-            return "Open video"
+        if localVideoPath(for: group) != nil {
+            return "▶ Watch the video (Space)"
+        }
+        if isVideoGroup(group) {
+            return "Open video (O)"
         }
         if metadataString(group.metadata, keys: ["publicMediaUrl", "mediaUrl", "mediaURL", "url"]) != nil {
-            return "Open media URL"
+            return "Open media URL (O)"
         }
         if metadataString(group.metadata, keys: ["oneLink", "onelink"]) != nil {
-            return "Open OneLink"
+            return "Open OneLink (O)"
         }
-        return "Open media"
+        return "Open media (O)"
     }
 
     private func updateStatsLabels(counts: ProgressCounts, group: ReviewGroup?) {
@@ -1652,6 +1877,10 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
     }
 
     private func groupActionTitle(_ action: String, group: ReviewGroup? = nil) -> String {
+        if action == "skipped", let group = group, isPostReviewMode(group: group) {
+            return "Skip — do nothing with this post"
+        }
+
         let label = actionLabel(action, group: group)
         if groupAction(for: .approve, group: group) == action {
             return "A  \(label)"
@@ -1906,6 +2135,58 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
     }
 
     private func metadataSummary(item: ImageItem, group: ReviewGroup?) -> String {
+        if showMoreDetails {
+            return detailedMetadataSummary(item: item, group: group)
+        }
+        return compactMetadataSummary(item: item, group: group)
+    }
+
+    private func appendCompactLine(_ lines: inout [String], _ label: String, _ value: String?) {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return }
+        lines.append("\(label): \(value)")
+    }
+
+    private func compactMetadataSummary(item: ImageItem, group: ReviewGroup?) -> String {
+        guard let group = group else {
+            var lines: [String] = []
+            appendCompactLine(&lines, "Review", item.label)
+            appendCompactLine(&lines, "Instruction", session.prompt)
+            appendCompactLine(&lines, "Decision", statusLabel(currentDecision().status))
+            return lines.prefix(8).joined(separator: "\n")
+        }
+
+        var lines: [String] = []
+        appendCompactLine(&lines, "Hook", metadataString(group.metadata, keys: ["hook"]))
+        appendCompactLine(&lines, "Caption", metadataString(group.metadata, keys: ["caption"]))
+        appendCompactLine(&lines, "CTA", metadataString(group.metadata, keys: ["cta", "CTA", "callToAction"]))
+
+        let postsTo = [
+            metadataString(group.metadata, keys: ["accountHandles", "accountHandle"]),
+            metadataString(group.metadata, keys: ["platform"]),
+            metadataString(group.metadata, keys: ["accountGroup", "account_group"])
+        ].compactMap { $0 }.joined(separator: " · ")
+        appendCompactLine(&lines, "Posts to", postsTo)
+        appendCompactLine(&lines, "When", metadataString(group.metadata, keys: ["scheduledLocal", "scheduled_at_local", "scheduledAtLocal"]))
+
+        let cost = metadataString(group.metadata, keys: ["creditCostEstimate"])
+        let remaining = metadataString(group.metadata, keys: ["creditsRemaining"])
+        let costLine: String?
+        if let cost = cost, let remaining = remaining {
+            costLine = "\(cost) credits, \(remaining) left"
+        } else {
+            costLine = cost ?? remaining
+        }
+        appendCompactLine(&lines, "Cost", costLine)
+
+        if lines.isEmpty {
+            appendCompactLine(&lines, "Review", group.label)
+            appendCompactLine(&lines, "Instruction", reviewModeGuidance(group.reviewType ?? session.reviewType, group: group))
+        }
+
+        return lines.prefix(8).joined(separator: "\n")
+    }
+
+    private func detailedMetadataSummary(item: ImageItem, group: ReviewGroup?) -> String {
         var lines: [String] = []
         let groupMetadata = group?.metadata ?? [:]
         let itemMetadata = item.metadata ?? [:]
@@ -1972,11 +2253,6 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
                 appendBullets(&lines, "Approved references", metadataList(personaContext, keys: ["approvedReferences"]))
             }
 
-            appendSection(
-                &lines,
-                "Publish consequence",
-                metadataString(group.metadata, keys: ["consequence"])
-            )
             appendFacts(
                 &lines,
                 "Publish readiness",
@@ -2028,6 +2304,7 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
                 ("Slide", metadataString(item.metadata, keys: ["slideIndex", "index"])),
                 ("Aspect", metadataString(item.metadata, keys: ["aspectRatio", "aspect"])),
                 ("File", item.filename),
+                ("Path", item.path),
             ]
         )
         appendSection(
@@ -2057,7 +2334,8 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
             "platform", "accountGroup", "account_group", "oneLink", "onelink", "personaId", "contentSetId", "briefId", "externalId",
             "personaContext", "consequence", "accountHandles", "accountHandle", "scheduledLocal", "scheduled_at_local", "scheduledAtLocal",
             "creditCostEstimate", "creditsRemaining", "publicMediaUrl", "mediaUrl", "mediaURL", "url", "videoPath", "videoDurationSec",
-            "actionLabels", "itemActionLabels", "groupActionLabels", "noteRequiredStatuses", "requireNotesForStatuses"
+            "contentTypeLabel", "mediaType", "contentType", "assetType", "postType", "actionLabels", "itemActionLabels", "groupActionLabels",
+            "noteRequiredStatuses", "requireNotesForStatuses"
         ])
         let additionalGroup = groupMetadata
             .filter { !knownGroupKeys.contains($0.key) }
@@ -2095,7 +2373,7 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
             return ("Picked", "Picked but unconfirmed, \(selectedText)")
         }
 
-        return ("Open", "Undecided, \(selectedText)")
+        return ("TO DO", "Undecided, \(selectedText)")
     }
 
     private func renderGroupRail() {
@@ -2104,7 +2382,7 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
             view.removeFromSuperview()
         }
 
-        guard let groups = session.groups, !groups.isEmpty else {
+        guard let groups = session.groups, groups.count > 1 else {
             groupRailScroll.isHidden = true
             return
         }
@@ -2161,8 +2439,13 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
         let items = orderedItems(for: group)
         storyboardHeader.isHidden = false
         storyboardScroll.isHidden = false
-        storyboardTitleLabel.stringValue = group.label
-        storyboardStatusLabel.stringValue = "\(items.count) items"
+        if isVideoGroup(group) {
+            storyboardTitleLabel.stringValue = "Preview frames (from the video above)"
+            storyboardStatusLabel.stringValue = "\(items.count) frames · not separate posts"
+        } else {
+            storyboardTitleLabel.stringValue = group.label
+            storyboardStatusLabel.stringValue = "\(items.count) items"
+        }
 
         if let first = items.first {
             storyboardStack.addArrangedSubview(makeStoryboardDropSlot(targetItemId: first.id, insertion: .before))
@@ -2276,6 +2559,12 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
             view.removeFromSuperview()
         }
 
+        if let groups = session.groups, !groups.isEmpty {
+            thumbScroll.isHidden = true
+            return
+        }
+
+        thumbScroll.isHidden = false
         let batchSize = max(1, session.batchSize)
         let half = batchSize / 2
         var start = max(0, session.currentIndex - half)
@@ -2385,6 +2674,7 @@ final class ReviewViewController: NSViewController, NSTextViewDelegate, NSWindow
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        pauseVideo()
         guard isAutogenReview() else { return true }
         if session.finishedAt != nil { return true }
 
@@ -2464,7 +2754,7 @@ func decisionBadgeText(_ status: String) -> String {
     case "replace":
         return "Swap"
     case "unreviewed":
-        return "Open"
+        return "TO DO"
     default:
         return statusLabel(status)
     }
