@@ -27,6 +27,7 @@ Review options:
 Examples:
   swipesheet review ~/Desktop/PHOTO --title "Portfolio scenic selects"
   swipesheet review out/candidates --prompt "Pick one canonical identity per persona"
+  swipesheet review .autogen/reviews/content-sets.json --title "Content set review"
   swipesheet autogen manifest personas ./references/personas --out .autogen/reviews/personas.json
   swipesheet export .swipesheet/sessions/latest.json --format autogen
 `);
@@ -122,7 +123,8 @@ async function serveSession({ session, sessionFile, options }) {
   console.log(`Images:       ${session.items.length}`);
   console.log(`Session file: ${sessionFile}`);
   console.log("");
-  console.log("Keyboard: x reject, y use, m maybe, n note, left/right navigate.");
+  console.log("Keyboard: x reject, y use, m maybe, n note, a approve group, c changes, r reject group.");
+  console.log("Video:    Space play/pause, o open media externally, left/right navigate.");
   console.log("Finish from the app to copy the AI-agent-ready export.");
 
   await launchNativeReviewer({ rootDir, sessionFile });

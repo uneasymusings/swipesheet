@@ -118,6 +118,8 @@ The session file and native binary cache will be created in that project's `.swi
 
 ## Using With AI CLI Agents
 
+For a copy-paste handoff prompt, grouped manifest shape, and skill/MCP recommendation, see [AI Agent Integration](AI_AGENT_INTEGRATION.md).
+
 Give the agent a concrete review command and tell it to wait for your review to finish:
 
 ```text
@@ -147,6 +149,8 @@ For aut0gen state updates, use the grouped export:
 ```bash
 swipesheet export .swipesheet/sessions/latest.json --format autogen
 ```
+
+When reviewing video posts, the presenting agent should include a local `group.metadata.videoPath` and still-frame items for preview/navigation. SwipeSheet plays the video inline, treats the strip as preview frames, and records the final publish decision at the group level.
 
 ## Resuming
 

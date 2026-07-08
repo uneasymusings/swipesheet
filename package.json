@@ -35,7 +35,10 @@
     "photo-culling",
     "local-first",
     "ai-workflow",
+    "ai-agents",
+    "codex",
+    "autogen",
     "portfolio",
-    "ai-agents"
+    "creative-review"
   ]
 }

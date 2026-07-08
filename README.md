@@ -35,6 +35,7 @@ At the end, **Finish and export** gives you copy-ready text with selected images
 - Plain JSON session files you can resume or inspect.
 - Copy-ready AI-agent export plus JSON export for scripts.
 - Grouped review sessions with constraints, group decisions, reorderable storyboards, and finish-time validation.
+- Inline video review for grouped post sessions that provide a local `videoPath`.
 - Works as a reusable CLI from any project directory.
 
 ## Quick Start
@@ -108,6 +109,8 @@ swipesheet review ./out/images \
 ```
 
 ## Using From Other AI CLI Sessions
+
+For the complete copy-paste handoff, grouped manifest guidance, and skill/MCP recommendation, see [AI Agent Integration](docs/AI_AGENT_INTEGRATION.md).
 
 In the project where another AI CLI is generating or editing images, tell that agent to run SwipeSheet from that project's directory:
 
@@ -247,7 +250,9 @@ Grouped review manifests let another system keep IDs, constraints, and ordered c
 }
 ```
 
-The native UI turns these fields into a review brief: what you are reviewing, how to decide, objective, criteria, instructions, checklist, content context, persona context, publish readiness, warnings, and current asset description. Grouped reviews also get a group rail and a storyboard strip where the visual order is saved as `groupDecisions[groupId].itemOrder` and included in JSON/aut0gen exports.
+The native UI turns these fields into a review brief: what you are reviewing, how to decide, objective, criteria, instructions, checklist, content context, persona context, publish readiness, warnings, and current asset description. Multi-group reviews get a group rail, and grouped reviews get a storyboard strip where the visual order is saved as `groupDecisions[groupId].itemOrder` and included in JSON/aut0gen exports.
+
+For video post review, include `group.metadata.videoPath` when a local MP4/MOV is available and use image items as preview frames. SwipeSheet plays the video inline and labels the strip as preview frames instead of treating it like a slideshow of separate posts.
 
 `metadata.itemActionLabels` and `metadata.groupActionLabels` change button text without changing raw statuses on disk. Legacy `metadata.actionLabels` is still read as a group-label fallback. `metadata.noteRequiredStatuses` is group-scoped and makes finish-time validation require group notes for statuses such as `request_changes` or `needs_reorder`.
 
@@ -307,6 +312,7 @@ npm run assets:demo
 
 ## Documentation
 
+- [AI Agent Integration](docs/AI_AGENT_INTEGRATION.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Workflow Guide](docs/WORKFLOWS.md)
 - [Generated Assets](docs/ASSETS.md)

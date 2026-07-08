@@ -15,19 +15,21 @@
 - JSON export
 - Aut0gen grouped JSON export
 - Aut0gen persona/content-set manifest helpers
+- Inline local video playback for post-review groups
+- Compact publish brief with detailed metadata disclosure
+- Optional Codex skill template for agent integration
 
 ## Near-Term Improvements
 
 - Add a `--group-by` option for persona, roll, folder, or manifest field.
-- Add per-group quotas, such as "pick one per persona".
 - Add a larger group compare grid for one content set at a time.
-- Add quota warnings that understand `minSelected` and selected item counts.
 - Add a command that copies approved images into an output folder.
 - Add optional contact-sheet import helpers for numbered sheets.
 - Add a compact "compare current 4" view for near-duplicates.
 - Add undo history beyond manual navigation.
 - Add preview caching for formats macOS cannot render directly.
-- Add a first-run sample project with tiny generated placeholder images.
+- Add a packaged installer or signed app bundle for non-CLI users.
+- Add an install script for the optional Codex skill template.
 
 ## Packaging Possibilities
 
@@ -41,10 +43,16 @@ The current CLI-first flow remains useful even after packaging because other pro
 
 ## aut0gen Integration Ideas
 
-- `aut0gen review:candidates` could write a manifest and launch this picker.
-- The JSON export could update `persona.json` files directly.
+- `aut0gen review:candidates` could write a manifest and launch SwipeSheet.
+- Aut0gen can apply the grouped export to update `persona.json`, content-set state, captions, and approval status.
 - A staged content set could require a completed picker session before scheduling.
 - Review notes could become training data for future prompt scoring.
+
+## Agent Integration Ideas
+
+- Add an MCP bridge only if agents need host-discoverable tool calls such as `create_review`, `wait_for_review`, `export_review`, or `list_sessions`.
+- Publish a tiny agent handoff package that installs the Codex skill template.
+- Add examples for Claude Code, Codex, and other CLI agents that all use the same session/export contract.
 
 ## Portfolio Integration Ideas
 

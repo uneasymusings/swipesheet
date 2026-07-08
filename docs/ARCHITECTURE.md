@@ -27,7 +27,7 @@ src/lib/autogen.js
   Helper manifest generation for aut0gen persona and content-set reviews
 
 native/macos/ImagePickerApp.swift
-  Native macOS AppKit review window
+  Native macOS AppKit/AVKit review window
 ```
 
 ## Data Flow
@@ -40,9 +40,20 @@ native/macos/ImagePickerApp.swift
 6. Item decisions, item notes, group decisions, group notes, and storyboard `itemOrder` changes are saved directly back to the session JSON.
 7. The export is generated from the session in the app or with `swipesheet export`.
 
+## Review Surface
+
+The native app has two layers of decision state:
+
+- item decisions for individual images, frames, slides, or references
+- group decisions for persona sets, posts, storyboards, and content sets
+
+Grouped sessions can define their own item and group actions. The app keeps the raw statuses stable on disk while using manifest-provided labels for human-facing buttons.
+
+For video post review, the manifest can provide `group.metadata.videoPath`. The app uses AVKit to play that local video inline and treats the grouped image items as preview frames, not separate posts. The final approval state is recorded on the group decision.
+
 ## Image Loading
 
-The export must always point at the original file. The app uses macOS `NSImage` to display local images directly, so TIFF-heavy film workflows do not need a browser preview server.
+The export must always point at the original file. The app uses macOS `NSImage` to display local images directly and AVKit for local video playback, so TIFF-heavy film workflows and video-post review do not need a browser preview server.
 
 If macOS cannot display an image, the app shows a placeholder but still preserves the path for export. A later version can add generated preview caching for RAW formats.
 
